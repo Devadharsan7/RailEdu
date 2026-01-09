@@ -9,11 +9,14 @@ import CourseProgressChart from '@/components/CourseProgressChart'
 import StatusBreakdownChart from '@/components/StatusBreakdownChart'
 import UpcomingClasses from '@/components/UpcomingClasses'
 import BatchManagement from '@/components/BatchManagement'
-import { Users, FileText, CheckCircle, MoreHorizontal } from 'lucide-react'
+import ExcelUploadModal from '@/components/ExcelUploadModal'
+import { Users, FileText, CheckCircle, MoreHorizontal, Plus } from 'lucide-react'
 
 export default function Dashboard() {
-  const handleAddEditContent = () => {
-    alert('Add/Edit Content: This feature allows you to add or edit course content, stations, and other educational materials.')
+  const [isExcelModalOpen, setIsExcelModalOpen] = useState(false)
+
+  const handleAddClick = () => {
+    setIsExcelModalOpen(true)
   }
 
   return (
@@ -31,10 +34,11 @@ export default function Dashboard() {
                 <p className="text-gray-600 mt-1">Here is the summary of course and station data.</p>
               </div>
               <button
-                onClick={handleAddEditContent}
+                onClick={handleAddClick}
                 className="bg-primary-500 hover:bg-primary-600 text-white font-semibold py-2.5 px-4 rounded-lg transition-colors flex items-center gap-2"
               >
-                <span>+</span> Add / Edit Content
+                <Plus className="w-5 h-5" />
+                Add
               </button>
             </div>
 
@@ -96,6 +100,7 @@ export default function Dashboard() {
           </div>
         </main>
       </div>
+      <ExcelUploadModal isOpen={isExcelModalOpen} onClose={() => setIsExcelModalOpen(false)} />
     </div>
     </ProtectedRoute>
   )

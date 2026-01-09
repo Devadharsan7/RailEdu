@@ -16,24 +16,24 @@ interface Class {
 const classes: Class[] = [
   {
     date: 'Feb 14',
-    course: 'Advanced Data Structures (CS-302)',
+    course: 'Railway Safety and Operations (RSO-101)',
     time: '09:00 AM - 11:30 AM',
-    location: 'Lab Station 4B',
+    location: 'Training Center A',
     status: 'Confirmed',
   },
   {
     date: 'Feb 28',
-    course: 'Web Architecture (CS-405)',
+    course: 'Locomotive Engineering (LE-201)',
     time: '01:00 PM - 03:00 PM',
-    location: 'Lecture Hall A',
+    location: 'Workshop Hall B',
     status: 'Upcoming',
     highlight: true,
   },
   {
     date: 'Mar 04',
-    course: 'Database Management (CS-310)',
+    course: 'Signal and Telecommunication Systems (STS-301)',
     time: '10:00 AM - 12:00 PM',
-    location: 'Lab Station 2C',
+    location: 'Technical Lab C',
     status: 'Scheduled',
   },
 ]

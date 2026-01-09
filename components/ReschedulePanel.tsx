@@ -5,7 +5,7 @@ import { Check } from 'lucide-react'
 
 export default function ReschedulePanel() {
   const [selectedPeriod, setSelectedPeriod] = useState('mar-apr')
-  const [selectedCourse, setSelectedCourse] = useState('Web Architecture (CS-405)')
+  const [selectedCourse, setSelectedCourse] = useState('Locomotive Engineering (LE-201)')
   const [reason, setReason] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
 
@@ -45,9 +45,10 @@ export default function ReschedulePanel() {
             onChange={(e) => setSelectedCourse(e.target.value)}
             className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
           >
-            <option>Web Architecture (CS-405)</option>
-            <option>Advanced Data Structures (CS-302)</option>
-            <option>Database Management (CS-310)</option>
+            <option>Railway Safety and Operations (RSO-101)</option>
+            <option>Locomotive Engineering (LE-201)</option>
+            <option>Signal and Telecommunication Systems (STS-301)</option>
+            <option>Track Maintenance and Infrastructure (TMI-401)</option>
           </select>
         </div>
 

@@ -62,6 +62,9 @@ export const getAuth = (): AuthUser | null => {
   return null
 }
 
+// Alias for getAuth for consistency
+export const getAuthUser = getAuth
+
 export const clearAuth = () => {
   if (typeof window !== 'undefined') {
     localStorage.removeItem('authUser')

@@ -6,11 +6,13 @@ import ProtectedRoute from '@/components/ProtectedRoute'
 import StudentSidebar from '@/components/StudentSidebar'
 import StudentHeader from '@/components/StudentHeader'
 import { ArrowLeft, Check, MoreVertical } from 'lucide-react'
+import { rescheduleStorage, notificationStorage } from '@/lib/storage'
+import { getAuthUser } from '@/lib/auth'
 
 function RescheduleContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const courseParam = searchParams.get('course') || 'Web Architecture (CS-405)'
+  const courseParam = searchParams.get('course') || 'Locomotive Engineering (LE-201)'
 
   const [selectedCourse, setSelectedCourse] = useState(courseParam)
   const [selectedPeriod, setSelectedPeriod] = useState('mar-apr')
@@ -18,10 +20,12 @@ function RescheduleContent() {
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   const courses = [
-    'Web Architecture (CS-405)',
-    'Advanced Data Structures (CS-302)',
-    'Database Management (CS-310)',
-    'Machine Learning Basics (CS-450)',
+    'Railway Safety and Operations (RSO-101)',
+    'Locomotive Engineering (LE-201)',
+    'Signal and Telecommunication Systems (STS-301)',
+    'Track Maintenance and Infrastructure (TMI-401)',
+    'Railway Traffic Management (RTM-501)',
+    'Freight Operations (FO-601)',
   ]
 
   const handleSubmit = () => {
@@ -32,10 +36,31 @@ function RescheduleContent() {
 
     setIsSubmitting(true)
     
-    // Simulate API call
+    // Save to storage
+    const user = getAuthUser()
+    const periodText = selectedPeriod === 'mar-apr' ? 'Mar - Apr' : 'May - Jun'
+    
+    const request = {
+      id: Date.now().toString(),
+      course: selectedCourse,
+      currentPeriod: 'Jan - Feb (Mon/Wed)',
+      desiredPeriod: periodText,
+      reason: reason,
+      status: 'Pending' as const,
+      createdAt: new Date().toISOString(),
+      userId: user?.id || 'unknown',
+    }
+    
+    rescheduleStorage.save(request)
+    
+    // Add notification
+    notificationStorage.add({
+      title: 'Reschedule Request Submitted',
+      message: `Your request for ${selectedCourse} has been submitted and is pending review.`,
+      type: 'info',
+    })
+    
     setTimeout(() => {
-      const periodText = selectedPeriod === 'mar-apr' ? 'Mar - Apr' : 'May - Jun'
-      alert(`Reschedule Request Submitted!\n\nCourse: ${selectedCourse}\nCurrent Period: Jan - Feb (Mon/Wed)\nDesired Period: ${periodText}\nReason: ${reason}\n\nYour request has been sent for review. You will receive a notification once it's processed.`)
       setReason('')
       setIsSubmitting(false)
       router.push('/dashboard')

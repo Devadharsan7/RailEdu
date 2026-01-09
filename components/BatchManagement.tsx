@@ -1,53 +1,97 @@
 'use client'
 
-import { useState } from 'react'
-import { Plus, Edit, Trash2, Users, BookOpen, Save, X } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { Plus, Edit, Trash2, Users, BookOpen, Save, X, Calendar } from 'lucide-react'
+import { batchStorage, type Batch } from '@/lib/storage'
+import { useToast } from '@/hooks/useToast'
+import { ToastContainer } from '@/components/Toast'
 
-interface Batch {
-  id: string
-  name: string
-  classesPerBatch: number
-  crewLimitPerClass: number
-}
+const availableCourses = [
+  'Railway Safety and Operations (RSO-101)',
+  'Locomotive Engineering (LE-201)',
+  'Signal and Telecommunication Systems (STS-301)',
+  'Track Maintenance and Infrastructure (TMI-401)',
+  'Railway Traffic Management (RTM-501)',
+  'Freight Operations (FO-601)',
+  'Passenger Services Management (PSM-701)',
+  'Railway Electrical Systems (RES-801)',
+  'Rolling Stock Maintenance (RSM-901)',
+  'Railway Signaling Systems (RSS-1001)',
+]
 
-const initialBatches: Batch[] = [
-  {
-    id: '1',
-    name: 'Batch 1',
-    classesPerBatch: 6,
-    crewLimitPerClass: 30,
-  },
-  {
-    id: '2',
-    name: 'Batch 2',
-    classesPerBatch: 6,
-    crewLimitPerClass: 30,
-  },
+const availableMonths = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December'
 ]
 
 export default function BatchManagement() {
-  const [batches, setBatches] = useState<Batch[]>(initialBatches)
+  const { toasts, success, error, removeToast } = useToast()
+  const [batches, setBatches] = useState<Batch[]>([])
+
+  useEffect(() => {
+    const storedBatches = batchStorage.getAll()
+    if (storedBatches.length === 0) {
+      // Initialize with default batches
+      const defaultBatches: Batch[] = [
+        {
+          id: '1',
+          course: 'Railway Safety and Operations (RSO-101)',
+          classesPerBatch: 6,
+          crewLimitPerClass: 30,
+          months: ['January', 'February'],
+          createdAt: new Date().toISOString(),
+        },
+        {
+          id: '2',
+          course: 'Locomotive Engineering (LE-201)',
+          classesPerBatch: 6,
+          crewLimitPerClass: 30,
+          months: ['March', 'April'],
+          createdAt: new Date().toISOString(),
+        },
+      ]
+      defaultBatches.forEach(batch => batchStorage.save(batch))
+      setBatches(defaultBatches)
+    } else {
+      setBatches(storedBatches)
+    }
+  }, [])
   const [isAdding, setIsAdding] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [newBatch, setNewBatch] = useState({
-    name: '',
+    course: '',
     classesPerBatch: 6,
     crewLimitPerClass: 30,
+    months: [] as string[],
   })
 
   const handleAddBatch = () => {
-    if (newBatch.name.trim()) {
+    if (newBatch.course.trim() && newBatch.months.length > 0) {
       const batch: Batch = {
         id: Date.now().toString(),
-        name: newBatch.name,
+        course: newBatch.course,
         classesPerBatch: newBatch.classesPerBatch,
         crewLimitPerClass: newBatch.crewLimitPerClass,
+        months: newBatch.months,
+        createdAt: new Date().toISOString(),
       }
-      setBatches([...batches, batch])
-      setNewBatch({ name: '', classesPerBatch: 6, crewLimitPerClass: 30 })
+      batchStorage.save(batch)
+      setBatches(batchStorage.getAll())
+      setNewBatch({ course: '', classesPerBatch: 6, crewLimitPerClass: 30, months: [] })
       setIsAdding(false)
-      alert(`Batch "${batch.name}" created successfully!\n\nClasses per Batch: ${batch.classesPerBatch}\nCrew Limit per Class: ${batch.crewLimitPerClass}`)
+      success(`Batch created successfully for ${batch.course}`)
+    } else {
+      error('Please fill in all required fields: Course and at least one month.')
     }
+  }
+
+  const toggleMonth = (month: string) => {
+    setNewBatch(prev => ({
+      ...prev,
+      months: prev.months.includes(month)
+        ? prev.months.filter(m => m !== month)
+        : [...prev.months, month]
+    }))
   }
 
   const handleEdit = (batch: Batch) => {
@@ -55,19 +99,22 @@ export default function BatchManagement() {
   }
 
   const handleSave = (id: string, updatedBatch: Partial<Batch>) => {
-    setBatches(
-      batches.map((batch) =>
-        batch.id === id ? { ...batch, ...updatedBatch } : batch
-      )
-    )
-    setEditingId(null)
-    alert('Batch updated successfully!')
+    const batch = batchStorage.getById(id)
+    if (batch) {
+      const updated = { ...batch, ...updatedBatch }
+      batchStorage.save(updated)
+      setBatches(batchStorage.getAll())
+      setEditingId(null)
+      success('Batch updated successfully!')
+    }
   }
 
   const handleDelete = (id: string) => {
-    if (confirm('Are you sure you want to delete this batch?')) {
-      setBatches(batches.filter((batch) => batch.id !== id))
-      alert('Batch deleted successfully!')
+    const batch = batchStorage.getById(id)
+    if (batch && confirm(`Are you sure you want to delete batch for ${batch.course}?`)) {
+      batchStorage.delete(id)
+      setBatches(batchStorage.getAll())
+      success('Batch deleted successfully!')
     }
   }
 
@@ -78,13 +125,17 @@ export default function BatchManagement() {
           <h3 className="text-lg font-semibold text-gray-900">Batch Management</h3>
           <p className="text-sm text-gray-600 mt-1">Create and manage batches with class and crew limits</p>
         </div>
-        <button
-          onClick={() => setIsAdding(true)}
-          className="bg-primary-500 hover:bg-primary-600 text-white font-semibold py-2 px-4 rounded-lg transition-colors flex items-center gap-2"
-        >
-          <Plus className="w-5 h-5" />
-          Create Batch
-        </button>
+        <div className="flex items-center gap-3">
+          {!isAdding && (
+            <button
+              onClick={() => setIsAdding(true)}
+              className="bg-primary-500 hover:bg-primary-600 text-white font-semibold py-2 px-4 rounded-lg transition-colors flex items-center gap-2"
+            >
+              <Plus className="w-5 h-5" />
+              Add Batch
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Add New Batch Form */}
@@ -95,43 +146,37 @@ export default function BatchManagement() {
             <button
               onClick={() => {
                 setIsAdding(false)
-                setNewBatch({ name: '', classesPerBatch: 6, crewLimitPerClass: 30 })
+                setNewBatch({ course: '', classesPerBatch: 6, crewLimitPerClass: 30, months: [] })
               }}
               className="text-gray-500 hover:text-gray-700"
             >
               <X className="w-5 h-5" />
             </button>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="space-y-4">
+            {/* Step 1: Select Course */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Batch Name
+                Select Course <span className="text-red-500">*</span>
               </label>
-              <input
-                type="text"
-                value={newBatch.name}
-                onChange={(e) => setNewBatch({ ...newBatch, name: e.target.value })}
-                placeholder="e.g. Batch 3"
+              <select
+                value={newBatch.course}
+                onChange={(e) => setNewBatch({ ...newBatch, course: e.target.value })}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-              />
+              >
+                <option value="">Choose a course...</option>
+                {availableCourses.map((course) => (
+                  <option key={course} value={course}>
+                    {course}
+                  </option>
+                ))}
+              </select>
             </div>
+
+            {/* Step 2: Number of Members per Class */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Classes per Batch
-              </label>
-              <input
-                type="number"
-                value={newBatch.classesPerBatch}
-                onChange={(e) =>
-                  setNewBatch({ ...newBatch, classesPerBatch: parseInt(e.target.value) || 0 })
-                }
-                min="1"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Crew Limit per Class
+                Number of Members per Class <span className="text-red-500">*</span>
               </label>
               <input
                 type="number"
@@ -140,17 +185,72 @@ export default function BatchManagement() {
                   setNewBatch({ ...newBatch, crewLimitPerClass: parseInt(e.target.value) || 0 })
                 }
                 min="1"
+                placeholder="e.g. 30"
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
               />
             </div>
+
+            {/* Step 3: Number of Classes */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Number of Classes per Batch <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="number"
+                value={newBatch.classesPerBatch}
+                onChange={(e) =>
+                  setNewBatch({ ...newBatch, classesPerBatch: parseInt(e.target.value) || 0 })
+                }
+                min="1"
+                placeholder="e.g. 6"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+              />
+            </div>
+
+            {/* Step 4: Select Months */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Select Months <span className="text-red-500">*</span>
+              </label>
+              <div className="grid grid-cols-3 md:grid-cols-4 gap-2">
+                {availableMonths.map((month) => (
+                  <button
+                    key={month}
+                    type="button"
+                    onClick={() => toggleMonth(month)}
+                    className={`px-3 py-2 text-sm rounded-lg border-2 transition-colors ${
+                      newBatch.months.includes(month)
+                        ? 'bg-primary-500 text-white border-primary-500'
+                        : 'bg-white text-gray-700 border-gray-300 hover:border-primary-300'
+                    }`}
+                  >
+                    {month}
+                  </button>
+                ))}
+              </div>
+              {newBatch.months.length > 0 && (
+                <p className="mt-2 text-sm text-gray-600">
+                  Selected: {newBatch.months.join(', ')}
+                </p>
+              )}
+            </div>
           </div>
-          <div className="mt-4 flex justify-end">
+          <div className="mt-4 flex justify-end gap-2">
+            <button
+              onClick={() => {
+                setIsAdding(false)
+                setNewBatch({ course: '', classesPerBatch: 6, crewLimitPerClass: 30, months: [] })
+              }}
+              className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+            >
+              Cancel
+            </button>
             <button
               onClick={handleAddBatch}
               className="bg-primary-500 hover:bg-primary-600 text-white font-semibold py-2 px-4 rounded-lg transition-colors flex items-center gap-2"
             >
               <Save className="w-4 h-4" />
-              Create Batch
+              Add Batch
             </button>
           </div>
         </div>
@@ -171,10 +271,13 @@ export default function BatchManagement() {
               />
             ) : (
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-6">
-                  <div>
-                    <h4 className="font-semibold text-gray-900">{batch.name}</h4>
-                    <p className="text-xs text-gray-500 mt-1">Batch ID: {batch.id}</p>
+                <div className="flex items-center gap-6 flex-wrap">
+                  <div className="flex-1 min-w-[200px]">
+                    <div className="flex items-center gap-2 mb-1">
+                      <BookOpen className="w-4 h-4 text-primary-600" />
+                      <h4 className="font-semibold text-gray-900">{batch.course}</h4>
+                    </div>
+                    <p className="text-xs text-gray-500">Batch ID: {batch.id}</p>
                   </div>
                   <div className="flex items-center gap-2 text-sm text-gray-600">
                     <BookOpen className="w-4 h-4" />
@@ -182,23 +285,32 @@ export default function BatchManagement() {
                   </div>
                   <div className="flex items-center gap-2 text-sm text-gray-600">
                     <Users className="w-4 h-4" />
-                    <span>{batch.crewLimitPerClass} Crew/Class</span>
+                    <span>{batch.crewLimitPerClass} Members/Class</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm text-gray-600">
+                    <Calendar className="w-4 h-4" />
+                    <span>{batch.months.join(', ')}</span>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
                   <button
-                    onClick={() => handleEdit(batch)}
-                    className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                    onClick={() => {
+                      setIsAdding(false)
+                      handleEdit(batch)
+                    }}
+                    className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white font-medium rounded-lg transition-colors flex items-center gap-2"
                     title="Edit batch"
                   >
-                    <Edit className="w-5 h-5" />
+                    <Edit className="w-4 h-4" />
+                    Edit
                   </button>
                   <button
                     onClick={() => handleDelete(batch.id)}
-                    className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                    className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white font-medium rounded-lg transition-colors flex items-center gap-2"
                     title="Delete batch"
                   >
-                    <Trash2 className="w-5 h-5" />
+                    <Trash2 className="w-4 h-4" />
+                    Delete
                   </button>
                 </div>
               </div>
@@ -210,9 +322,10 @@ export default function BatchManagement() {
       {batches.length === 0 && !isAdding && (
         <div className="text-center py-8 text-gray-500">
           <BookOpen className="w-12 h-12 mx-auto mb-3 text-gray-400" />
-          <p>No batches created yet. Click "Create Batch" to get started.</p>
+          <p>No batches created yet. Click "Add Batch" to get started.</p>
         </div>
       )}
+      <ToastContainer toasts={toasts} onRemove={removeToast} />
     </div>
   )
 }
@@ -225,46 +338,52 @@ interface EditBatchFormProps {
 
 function EditBatchForm({ batch, onSave, onCancel }: EditBatchFormProps) {
   const [editedBatch, setEditedBatch] = useState({
-    name: batch.name,
+    course: batch.course,
     classesPerBatch: batch.classesPerBatch,
     crewLimitPerClass: batch.crewLimitPerClass,
+    months: [...batch.months],
   })
 
+  const toggleMonth = (month: string) => {
+    setEditedBatch(prev => ({
+      ...prev,
+      months: prev.months.includes(month)
+        ? prev.months.filter(m => m !== month)
+        : [...prev.months, month]
+    }))
+  }
+
   const handleSave = () => {
-    onSave(editedBatch)
+    if (editedBatch.course.trim() && editedBatch.months.length > 0) {
+      onSave(editedBatch)
+    } else {
+      alert('Please fill in all required fields: Course and at least one month.')
+    }
   }
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          Select Course <span className="text-red-500">*</span>
+        </label>
+        <select
+          value={editedBatch.course}
+          onChange={(e) => setEditedBatch({ ...editedBatch, course: e.target.value })}
+          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+        >
+          <option value="">Choose a course...</option>
+          {availableCourses.map((course) => (
+            <option key={course} value={course}>
+              {course}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">
-            Batch Name
-          </label>
-          <input
-            type="text"
-            value={editedBatch.name}
-            onChange={(e) => setEditedBatch({ ...editedBatch, name: e.target.value })}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-          />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Classes per Batch
-          </label>
-          <input
-            type="number"
-            value={editedBatch.classesPerBatch}
-            onChange={(e) =>
-              setEditedBatch({ ...editedBatch, classesPerBatch: parseInt(e.target.value) || 0 })
-            }
-            min="1"
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-          />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Crew Limit per Class
+            Number of Members per Class <span className="text-red-500">*</span>
           </label>
           <input
             type="number"
@@ -276,6 +395,46 @@ function EditBatchForm({ batch, onSave, onCancel }: EditBatchFormProps) {
             className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
           />
         </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Number of Classes per Batch <span className="text-red-500">*</span>
+          </label>
+          <input
+            type="number"
+            value={editedBatch.classesPerBatch}
+            onChange={(e) =>
+              setEditedBatch({ ...editedBatch, classesPerBatch: parseInt(e.target.value) || 0 })
+            }
+            min="1"
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+          />
+        </div>
+      </div>
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          Select Months <span className="text-red-500">*</span>
+        </label>
+        <div className="grid grid-cols-3 md:grid-cols-4 gap-2">
+          {availableMonths.map((month) => (
+            <button
+              key={month}
+              type="button"
+              onClick={() => toggleMonth(month)}
+              className={`px-3 py-2 text-sm rounded-lg border-2 transition-colors ${
+                editedBatch.months.includes(month)
+                  ? 'bg-primary-500 text-white border-primary-500'
+                  : 'bg-white text-gray-700 border-gray-300 hover:border-primary-300'
+              }`}
+            >
+              {month}
+            </button>
+          ))}
+        </div>
+        {editedBatch.months.length > 0 && (
+          <p className="mt-2 text-sm text-gray-600">
+            Selected: {editedBatch.months.join(', ')}
+          </p>
+        )}
       </div>
       <div className="flex justify-end gap-2">
         <button

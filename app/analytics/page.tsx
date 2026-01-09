@@ -16,11 +16,11 @@ const attendanceData = [
 ]
 
 const courseDistribution = [
-  { name: 'Computer Science', value: 35, color: '#3b82f6' },
-  { name: 'Mathematics', value: 25, color: '#60a5fa' },
-  { name: 'Engineering', value: 20, color: '#f97316' },
-  { name: 'Business', value: 15, color: '#a855f7' },
-  { name: 'Other', value: 5, color: '#e5e7eb' },
+  { name: 'Railway Safety & Operations', value: 30, color: '#3b82f6' },
+  { name: 'Locomotive Engineering', value: 25, color: '#60a5fa' },
+  { name: 'Signal & Telecommunication', value: 20, color: '#f97316' },
+  { name: 'Track Maintenance', value: 15, color: '#a855f7' },
+  { name: 'Traffic Management', value: 10, color: '#10b981' },
 ]
 
 const performanceData = [
@@ -39,17 +39,17 @@ export default function AnalyticsPage() {
         <Sidebar />
         <div className="flex-1 ml-64">
           <Header />
-          <main className="pt-16 p-6">
+          <main className="pt-16 p-8">
             <div className="max-w-7xl mx-auto">
               {/* Page Header */}
-              <div className="mb-6">
+              <div className="mb-8">
                 <h1 className="text-3xl font-bold text-gray-900 mb-2">Analytics</h1>
                 <p className="text-gray-600">Comprehensive insights and performance metrics</p>
               </div>
 
               {/* Key Metrics */}
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
-                <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+                <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8">
                   <div className="flex items-center justify-between mb-4">
                     <div className="p-3 bg-blue-100 rounded-lg">
                       <Users className="w-6 h-6 text-blue-600" />
@@ -60,7 +60,7 @@ export default function AnalyticsPage() {
                   <p className="text-sm text-gray-600">Total Users</p>
                   <p className="text-xs text-blue-600 mt-2">+12% from last month</p>
                 </div>
-                <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+                <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8">
                   <div className="flex items-center justify-between mb-4">
                     <div className="p-3 bg-blue-100 rounded-lg">
                       <BookOpen className="w-6 h-6 text-blue-600" />
@@ -71,7 +71,7 @@ export default function AnalyticsPage() {
                   <p className="text-sm text-gray-600">Active Courses</p>
                   <p className="text-xs text-blue-600 mt-2">+5% from last month</p>
                 </div>
-                <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+                <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8">
                   <div className="flex items-center justify-between mb-4">
                     <div className="p-3 bg-purple-100 rounded-lg">
                       <Award className="w-6 h-6 text-purple-600" />
@@ -82,7 +82,7 @@ export default function AnalyticsPage() {
                   <p className="text-sm text-gray-600">Completions</p>
                   <p className="text-xs text-blue-600 mt-2">+8% from last month</p>
                 </div>
-                <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+                <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8">
                   <div className="flex items-center justify-between mb-4">
                     <div className="p-3 bg-orange-100 rounded-lg">
                       <TrendingUp className="w-6 h-6 text-orange-600" />
@@ -96,9 +96,9 @@ export default function AnalyticsPage() {
               </div>
 
               {/* Charts Row 1 */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-                <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-6">Attendance Trends</h3>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+                <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-8">Attendance Trends</h3>
                   <ResponsiveContainer width="100%" height={300}>
                     <BarChart data={attendanceData}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
@@ -116,8 +116,8 @@ export default function AnalyticsPage() {
                   </ResponsiveContainer>
                 </div>
 
-                <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-6">Course Distribution</h3>
+                <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-8">Course Distribution</h3>
                   <ResponsiveContainer width="100%" height={300}>
                     <PieChart>
                       <Pie
@@ -125,7 +125,7 @@ export default function AnalyticsPage() {
                         cx="50%"
                         cy="50%"
                         labelLine={false}
-                        label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                        label={({ percent }) => `${(percent * 100).toFixed(0)}%`}
                         outerRadius={100}
                         fill="#8884d8"
                         dataKey="value"
@@ -139,7 +139,12 @@ export default function AnalyticsPage() {
                           backgroundColor: '#fff',
                           border: '1px solid #e5e7eb',
                           borderRadius: '8px',
+                          padding: '12px',
                         }}
+                        formatter={(value: number, name: string) => [
+                          `${value}%`,
+                          name
+                        ]}
                       />
                     </PieChart>
                   </ResponsiveContainer>
@@ -147,8 +152,8 @@ export default function AnalyticsPage() {
               </div>
 
               {/* Charts Row 2 */}
-              <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-6">Performance Metrics</h3>
+              <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8">
+                <h3 className="text-lg font-semibold text-gray-900 mb-8">Performance Metrics</h3>
                 <ResponsiveContainer width="100%" height={300}>
                   <LineChart data={performanceData}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
