@@ -1,5 +1,32 @@
 // Data storage utility using localStorage
 
+export interface User {
+  id: string
+  name: string
+  email: string
+  role: string
+  status: 'Active' | 'Inactive'
+  joinDate: string
+  phone?: string
+  division?: string
+  station?: string
+  crewId?: string
+}
+
+export interface Station {
+  id: string
+  name: string
+  code: string
+  users: User[]
+}
+
+export interface Division {
+  id: string
+  name: string
+  code: string
+  stations: Station[]
+}
+
 export interface Batch {
   id: string
   course: string
@@ -48,6 +75,7 @@ const STORAGE_KEYS = {
   COURSES: 'railedu_courses',
   RESCHEDULE_REQUESTS: 'railedu_reschedule_requests',
   NOTIFICATIONS: 'railedu_notifications',
+  DIVISIONS: 'railedu_divisions',
 }
 
 // Generic storage functions
@@ -264,6 +292,122 @@ export const notificationStorage = {
   delete: (id: string): void => {
     const notifications = notificationStorage.getAll().filter(n => n.id !== id)
     setStorageItem(STORAGE_KEYS.NOTIFICATIONS, notifications)
+  },
+}
+
+// Division and User management
+export const divisionStorage = {
+  getAll: (): Division[] => {
+    const stored = getStorageItem<Division[]>(STORAGE_KEYS.DIVISIONS, [])
+    // If no stored divisions, return default divisions structure
+    if (stored.length === 0) {
+      const defaultDivisions: Division[] = [
+        {
+          id: '1',
+          name: 'Chennai',
+          code: 'MAS',
+          stations: [
+            { id: '1', name: 'Chennai Central', code: 'MAS', users: [] },
+            { id: '2', name: 'Chennai Egmore', code: 'MS', users: [] },
+            { id: '3', name: 'Tambaram', code: 'TBM', users: [] },
+          ],
+        },
+        {
+          id: '2',
+          name: 'Madurai',
+          code: 'MDU',
+          stations: [
+            { id: '4', name: 'Madurai Junction', code: 'MDU', users: [] },
+            { id: '5', name: 'Tirunelveli Junction', code: 'TEN', users: [] },
+            { id: '6', name: 'Dindigul', code: 'DG', users: [] },
+          ],
+        },
+        {
+          id: '3',
+          name: 'Salem',
+          code: 'SA',
+          stations: [
+            { id: '7', name: 'Salem Junction', code: 'SA', users: [] },
+            { id: '8', name: 'Erode Junction', code: 'ED', users: [] },
+            { id: '9', name: 'Coimbatore Junction', code: 'CBE', users: [] },
+          ],
+        },
+        {
+          id: '4',
+          name: 'Tiruchirappalli',
+          code: 'TPJ',
+          stations: [
+            { id: '10', name: 'Tiruchirappalli Junction', code: 'TPJ', users: [] },
+            { id: '11', name: 'Thanjavur Junction', code: 'TJ', users: [] },
+            { id: '12', name: 'Kumbakonam', code: 'KMU', users: [] },
+          ],
+        },
+        {
+          id: '5',
+          name: 'Palakkad',
+          code: 'PGT',
+          stations: [
+            { id: '13', name: 'Palakkad Junction', code: 'PGT', users: [] },
+            { id: '14', name: 'Shoranur Junction', code: 'SRR', users: [] },
+            { id: '15', name: 'Ottapalam', code: 'OTP', users: [] },
+          ],
+        },
+        {
+          id: '6',
+          name: 'Thiruvananthapuram',
+          code: 'TVC',
+          stations: [
+            { id: '16', name: 'Thiruvananthapuram Central', code: 'TVC', users: [] },
+            { id: '17', name: 'Kollam Junction', code: 'QLN', users: [] },
+            { id: '18', name: 'Alappuzha', code: 'ALLP', users: [] },
+          ],
+        },
+      ]
+      setStorageItem(STORAGE_KEYS.DIVISIONS, defaultDivisions)
+      return defaultDivisions
+    }
+    return stored
+  },
+  save: (division: Division): void => {
+    const divisions = divisionStorage.getAll()
+    const existingIndex = divisions.findIndex(d => d.id === division.id)
+    if (existingIndex >= 0) {
+      divisions[existingIndex] = division
+    } else {
+      divisions.push(division)
+    }
+    setStorageItem(STORAGE_KEYS.DIVISIONS, divisions)
+  },
+  getById: (id: string): Division | undefined => {
+    return divisionStorage.getAll().find(d => d.id === id)
+  },
+  addUsersToStation: (divisionId: string, stationCode: string, users: User[], stationName?: string): void => {
+    const divisions = divisionStorage.getAll()
+    const division = divisions.find(d => d.id === divisionId)
+    if (division) {
+      const station = division.stations.find(s => s.code === stationCode)
+      if (station) {
+        // Update station name if provided
+        if (stationName && stationName !== station.name) {
+          station.name = stationName
+        }
+        // Merge with existing users (avoid duplicates)
+        const existingUserIds = new Set(station.users.map(u => u.id))
+        const newUsers = users.filter(u => !existingUserIds.has(u.id))
+        station.users = [...station.users, ...newUsers]
+        divisionStorage.save(division)
+      } else {
+        // Create new station if it doesn't exist
+        const newStation: Station = {
+          id: `${divisionId}-${stationCode}-${Date.now()}`,
+          name: stationName || `${stationCode} Station`,
+          code: stationCode,
+          users: users,
+        }
+        division.stations.push(newStation)
+        divisionStorage.save(division)
+      }
+    }
   },
 }
 

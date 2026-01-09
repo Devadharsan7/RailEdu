@@ -1,114 +1,55 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import Sidebar from '@/components/Sidebar'
 import Header from '@/components/Header'
 import { Users, ArrowLeft, MapPin, Train } from 'lucide-react'
-
-interface User {
-  id: string
-  name: string
-  email: string
-  role: string
-  status: 'Active' | 'Inactive'
-  joinDate: string
-  phone?: string
-  division?: string
-  station?: string
-}
-
-interface Division {
-  id: string
-  name: string
-  code: string
-  stations: Station[]
-}
-
-interface Station {
-  id: string
-  name: string
-  code: string
-  users: User[]
-}
-
-const mockUsers: User[] = [
-  { id: '1', name: 'John Doe', email: 'john.doe@weave.edu', role: 'Student', status: 'Active', joinDate: '2024-01-15', phone: '+1 234-567-8900', division: 'Chennai', station: 'Chennai Central' },
-  { id: '2', name: 'Jane Smith', email: 'jane.smith@weave.edu', role: 'Instructor', status: 'Active', joinDate: '2023-11-20', phone: '+1 234-567-8901', division: 'Madurai', station: 'Madurai Junction' },
-  { id: '3', name: 'Mike Johnson', email: 'mike.j@weave.edu', role: 'Student', status: 'Active', joinDate: '2024-02-01', phone: '+1 234-567-8902', division: 'Salem', station: 'Salem Junction' },
-  { id: '4', name: 'Sarah Williams', email: 'sarah.w@weave.edu', role: 'Admin', status: 'Active', joinDate: '2023-09-10', phone: '+1 234-567-8903', division: 'Tiruchirappalli', station: 'Tiruchirappalli Junction' },
-  { id: '5', name: 'Tom Brown', email: 'tom.brown@weave.edu', role: 'Student', status: 'Inactive', joinDate: '2023-12-05', phone: '+1 234-567-8904', division: 'Palakkad', station: 'Palakkad Junction' },
-  { id: '6', name: 'Emily Davis', email: 'emily.d@weave.edu', role: 'Student', status: 'Active', joinDate: '2024-01-20', phone: '+1 234-567-8905', division: 'Chennai', station: 'Chennai Egmore' },
-  { id: '7', name: 'David Wilson', email: 'david.w@weave.edu', role: 'Instructor', status: 'Active', joinDate: '2023-10-15', phone: '+1 234-567-8906', division: 'Madurai', station: 'Tirunelveli Junction' },
-  { id: '8', name: 'Lisa Anderson', email: 'lisa.a@weave.edu', role: 'Student', status: 'Active', joinDate: '2024-02-10', phone: '+1 234-567-8907', division: 'Salem', station: 'Erode Junction' },
-]
-
-const divisions: Division[] = [
-  {
-    id: '1',
-    name: 'Chennai',
-    code: 'MAS',
-    stations: [
-      { id: '1', name: 'Chennai Central', code: 'MAS', users: mockUsers.filter(u => u.station === 'Chennai Central') },
-      { id: '2', name: 'Chennai Egmore', code: 'MS', users: mockUsers.filter(u => u.station === 'Chennai Egmore') },
-      { id: '3', name: 'Tambaram', code: 'TBM', users: [] },
-    ]
-  },
-  {
-    id: '2',
-    name: 'Madurai',
-    code: 'MDU',
-    stations: [
-      { id: '4', name: 'Madurai Junction', code: 'MDU', users: mockUsers.filter(u => u.station === 'Madurai Junction') },
-      { id: '5', name: 'Tirunelveli Junction', code: 'TEN', users: mockUsers.filter(u => u.station === 'Tirunelveli Junction') },
-      { id: '6', name: 'Dindigul', code: 'DG', users: [] },
-    ]
-  },
-  {
-    id: '3',
-    name: 'Salem',
-    code: 'SA',
-    stations: [
-      { id: '7', name: 'Salem Junction', code: 'SA', users: mockUsers.filter(u => u.station === 'Salem Junction') },
-      { id: '8', name: 'Erode Junction', code: 'ED', users: mockUsers.filter(u => u.station === 'Erode Junction') },
-      { id: '9', name: 'Coimbatore Junction', code: 'CBE', users: [] },
-    ]
-  },
-  {
-    id: '4',
-    name: 'Tiruchirappalli',
-    code: 'TPJ',
-    stations: [
-      { id: '10', name: 'Tiruchirappalli Junction', code: 'TPJ', users: mockUsers.filter(u => u.station === 'Tiruchirappalli Junction') },
-      { id: '11', name: 'Thanjavur Junction', code: 'TJ', users: [] },
-      { id: '12', name: 'Kumbakonam', code: 'KMU', users: [] },
-    ]
-  },
-  {
-    id: '5',
-    name: 'Palakkad',
-    code: 'PGT',
-    stations: [
-      { id: '13', name: 'Palakkad Junction', code: 'PGT', users: mockUsers.filter(u => u.station === 'Palakkad Junction') },
-      { id: '14', name: 'Shoranur Junction', code: 'SRR', users: [] },
-      { id: '15', name: 'Ottapalam', code: 'OTP', users: [] },
-    ]
-  },
-  {
-    id: '6',
-    name: 'Thiruvananthapuram',
-    code: 'TVC',
-    stations: [
-      { id: '16', name: 'Thiruvananthapuram Central', code: 'TVC', users: [] },
-      { id: '17', name: 'Kollam Junction', code: 'QLN', users: [] },
-      { id: '18', name: 'Alappuzha', code: 'ALLP', users: [] },
-    ]
-  },
-]
+import { divisionStorage, type Division, type Station, type User } from '@/lib/storage'
 
 export default function UsersPage() {
+  const [divisions, setDivisions] = useState<Division[]>([])
   const [selectedDivision, setSelectedDivision] = useState<Division | null>(null)
   const [selectedStation, setSelectedStation] = useState<Station | null>(null)
+
+  useEffect(() => {
+    loadDivisions()
+  }, [])
+  
+  // Listen for custom event when data is updated
+  useEffect(() => {
+    const handleDataUpdate = () => {
+      loadDivisions()
+    }
+    
+    window.addEventListener('divisionsUpdated', handleDataUpdate)
+    
+    return () => {
+      window.removeEventListener('divisionsUpdated', handleDataUpdate)
+    }
+  }, [])
+
+  const loadDivisions = async () => {
+    try {
+      const response = await fetch('/api/divisions')
+      const result = await response.json()
+      
+      if (result.success && result.data && result.data.length > 0) {
+        setDivisions(result.data)
+      } else {
+        // Fallback to localStorage if database fails or returns empty
+        const localDivisions = divisionStorage.getAll()
+        console.log('Loading from localStorage:', localDivisions.length, 'divisions')
+        setDivisions(localDivisions)
+      }
+    } catch (error) {
+      console.error('Error loading divisions:', error)
+      // Fallback to localStorage
+      const localDivisions = divisionStorage.getAll()
+      console.log('Loading from localStorage (error):', localDivisions.length, 'divisions')
+      setDivisions(localDivisions)
+    }
+  }
 
   const handleDivisionClick = (division: Division) => {
     setSelectedDivision(division)

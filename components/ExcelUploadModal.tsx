@@ -9,11 +9,25 @@ interface ExcelUploadModalProps {
   onClose: () => void
 }
 
+const divisions = [
+  { id: '1', name: 'Chennai', code: 'MAS' },
+  { id: '2', name: 'Madurai', code: 'MDU' },
+  { id: '3', name: 'Salem', code: 'SA' },
+  { id: '4', name: 'Tiruchirappalli', code: 'TPJ' },
+  { id: '5', name: 'Palakkad', code: 'PGT' },
+  { id: '6', name: 'Thiruvananthapuram', code: 'TVC' },
+]
+
 export default function ExcelUploadModal({ isOpen, onClose }: ExcelUploadModalProps) {
   const [isDragging, setIsDragging] = useState(false)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  const [selectedDivision, setSelectedDivision] = useState<string>('')
   const [isUploading, setIsUploading] = useState(false)
   const [isUploaded, setIsUploaded] = useState(false)
+  const [uploadResult, setUploadResult] = useState<any>(null)
+  const [uploadProgress, setUploadProgress] = useState(0)
+  const [previewData, setPreviewData] = useState<any>(null)
+  const [showPreview, setShowPreview] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -70,40 +84,186 @@ export default function ExcelUploadModal({ isOpen, onClose }: ExcelUploadModalPr
     // In a real application, this would download an actual template file
   }
 
-  const handleUpload = () => {
+  const handlePreview = async () => {
+    if (!selectedFile || !selectedDivision) return
+
+    setIsUploading(true)
+    setUploadProgress(20)
+
+    try {
+      const formData = new FormData()
+      formData.append('file', selectedFile)
+      
+      const division = divisions.find(d => d.id === selectedDivision)
+      if (!division) {
+        throw new Error('Division not found')
+      }
+      
+      formData.append('divisionId', division.id)
+      formData.append('divisionName', division.name)
+      formData.append('preview', 'true') // Request preview mode
+
+      setUploadProgress(40)
+      const response = await fetch('/api/upload-excel', {
+        method: 'POST',
+        body: formData,
+      })
+
+      const result = await response.json()
+      setUploadProgress(80)
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Preview failed')
+      }
+
+      setPreviewData(result.data)
+      setShowPreview(true)
+      setUploadProgress(100)
+      setIsUploading(false)
+    } catch (error: any) {
+      alert(`Preview Error: ${error.message}`)
+      setIsUploading(false)
+      setUploadProgress(0)
+    }
+  }
+
+  const handleUpload = async () => {
     if (!selectedFile) {
       alert('Please select a file to upload')
       return
     }
 
-    setIsUploading(true)
+    if (!selectedDivision) {
+      alert('Please select a division')
+      return
+    }
 
-    // Simulate file upload and data processing
-    setTimeout(() => {
-      // In a real app, you would parse the Excel file here
-      // For now, we'll simulate processing and add a notification
+    setIsUploading(true)
+    setUploadProgress(10)
+
+    try {
+      const formData = new FormData()
+      formData.append('file', selectedFile)
+      
+      const division = divisions.find(d => d.id === selectedDivision)
+      if (!division) {
+        throw new Error('Division not found')
+      }
+      
+      formData.append('divisionId', division.id)
+      formData.append('divisionName', division.name)
+
+      setUploadProgress(30)
+      const response = await fetch('/api/upload-excel', {
+        method: 'POST',
+        body: formData,
+      })
+
+      setUploadProgress(60)
+      const result = await response.json()
+      setUploadProgress(80)
+
+      if (!response.ok) {
+        const errorMsg = result.error || 'Upload failed'
+        const errorDetails = result.details ? `: ${result.details}` : ''
+        throw new Error(`${errorMsg}${errorDetails}`)
+      }
+
+      // Data is already saved to database by the API
+      // Also save to localStorage as backup
+      const { divisionStorage } = require('@/lib/storage')
+      
+      // Ensure division exists in localStorage
+      let divisionData = divisionStorage.getById(selectedDivision)
+      if (!divisionData) {
+        // Create division if it doesn't exist
+        const newDivision = {
+          id: selectedDivision,
+          name: division.name,
+          code: division.code || division.name.substring(0, 3).toUpperCase(),
+          stations: [],
+        }
+        divisionStorage.save(newDivision)
+        divisionData = newDivision
+      }
+      
+      // Save users to stations
+      if (result.data.stations) {
+        Object.keys(result.data.stations).forEach(crewId => {
+          const stationData = result.data.stations[crewId]
+          const users = stationData.users.map((u: any, index: number) => ({
+            id: u.id || `${selectedDivision}-${crewId}-${Date.now()}-${index}-${Math.random().toString(36).substr(2, 5)}`,
+            name: u.name || 'Unknown',
+            email: u.email || '',
+            phone: u.phone || '',
+            role: u.role || 'Crew',
+            status: u.status || 'Active',
+            joinDate: u.joinDate || new Date().toISOString().split('T')[0],
+            division: division.name,
+            station: stationData.name,
+            crewId: crewId,
+          }))
+          
+          divisionStorage.addUsersToStation(
+            selectedDivision,
+            stationData.code,
+            users,
+            stationData.name // Pass station name
+          )
+        })
+        
+        // Trigger event to refresh users page
+        window.dispatchEvent(new Event('divisionsUpdated'))
+      }
+
       notificationStorage.add({
         title: 'Excel File Uploaded',
-        message: `File "${selectedFile.name}" has been uploaded and processed successfully. Data has been imported.`,
+        message: `Successfully imported ${result.data.totalMembers} members from ${Object.keys(result.data.stations).length} stations.`,
         type: 'success',
       })
-      
+
+      setUploadResult(result.data)
+      setUploadProgress(100)
       setIsUploading(false)
       setIsUploaded(true)
       
       // Reset after showing success
       setTimeout(() => {
         setSelectedFile(null)
+        setSelectedDivision('')
         setIsUploaded(false)
+        setUploadResult(null)
+        setUploadProgress(0)
+        setShowPreview(false)
+        setPreviewData(null)
         onClose()
-      }, 2000)
-    }, 2000)
+        // Trigger custom event to refresh users page
+        window.dispatchEvent(new Event('divisionsUpdated'))
+        // Also reload the page to ensure everything is fresh
+        window.location.reload()
+      }, 3000)
+    } catch (error: any) {
+      const errorMessage = error.message || 'Failed to upload and process Excel file'
+      notificationStorage.add({
+        title: 'Upload Failed',
+        message: errorMessage,
+        type: 'error',
+      })
+      setIsUploading(false)
+      setUploadProgress(0)
+      alert(`Error: ${errorMessage}`)
+    }
   }
 
   const handleClose = () => {
     setSelectedFile(null)
+    setSelectedDivision('')
     setIsUploaded(false)
     setIsDragging(false)
+    setUploadResult(null)
+    setUploadProgress(0)
+    setShowPreview(false)
+    setPreviewData(null)
     onClose()
   }
 
@@ -133,6 +293,25 @@ export default function ExcelUploadModal({ isOpen, onClose }: ExcelUploadModalPr
 
         {/* Content */}
         <div className="p-6">
+          {/* Division Selection */}
+          <div className="mb-4">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Select Division <span className="text-red-500">*</span>
+            </label>
+            <select
+              value={selectedDivision}
+              onChange={(e) => setSelectedDivision(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+            >
+              <option value="">Choose a division...</option>
+              {divisions.map((division) => (
+                <option key={division.id} value={division.id}>
+                  {division.name} ({division.code})
+                </option>
+              ))}
+            </select>
+          </div>
+
           {/* Download Template Button */}
           <div className="flex justify-end mb-4">
             <button
@@ -206,12 +385,69 @@ export default function ExcelUploadModal({ isOpen, onClose }: ExcelUploadModalPr
             </div>
           )}
 
-          {/* Success Message */}
-          {isUploaded && (
-            <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg">
-              <p className="text-sm text-green-800 font-medium">
-                ✓ File uploaded successfully! Processing data...
+          {/* Upload Progress */}
+          {isUploading && uploadProgress > 0 && (
+            <div className="mt-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm text-gray-700">Uploading...</span>
+                <span className="text-sm text-gray-600">{uploadProgress}%</span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-2">
+                <div
+                  className="bg-primary-500 h-2 rounded-full transition-all duration-300"
+                  style={{ width: `${uploadProgress}%` }}
+                ></div>
+              </div>
+            </div>
+          )}
+
+          {/* Preview Data */}
+          {showPreview && previewData && (
+            <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+              <p className="text-sm text-blue-800 font-medium mb-2">
+                📊 Data Preview
               </p>
+              <div className="text-xs text-blue-700 space-y-1">
+                <p><strong>Total Rows:</strong> {previewData.summary?.totalRows || previewData.totalMembers}</p>
+                <p><strong>Valid Members:</strong> {previewData.totalMembers}</p>
+                <p><strong>Stations:</strong> {previewData.stationsCount}</p>
+                {previewData.summary?.errorRows > 0 && (
+                  <p className="text-red-600"><strong>Errors:</strong> {previewData.summary.errorRows}</p>
+                )}
+                {previewData.summary?.warningRows > 0 && (
+                  <p className="text-yellow-600"><strong>Warnings:</strong> {previewData.summary.warningRows}</p>
+                )}
+              </div>
+              <button
+                onClick={() => setShowPreview(false)}
+                className="mt-2 text-xs text-blue-600 hover:text-blue-800 underline"
+              >
+                Hide Preview
+              </button>
+            </div>
+          )}
+
+          {/* Success Message */}
+          {isUploaded && uploadResult && (
+            <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg">
+              <p className="text-sm text-green-800 font-medium mb-2">
+                ✓ File uploaded successfully!
+              </p>
+              <div className="text-xs text-green-700 space-y-1">
+                <p><strong>Total Members:</strong> {uploadResult.totalMembers}</p>
+                <p><strong>Stations:</strong> {uploadResult.stationsCount}</p>
+                <p><strong>Division:</strong> {uploadResult.divisionName}</p>
+                {uploadResult.summary && (
+                  <>
+                    {uploadResult.summary.errorRows > 0 && (
+                      <p className="text-red-600"><strong>Errors:</strong> {uploadResult.summary.errorRows} rows</p>
+                    )}
+                    {uploadResult.summary.warningRows > 0 && (
+                      <p className="text-yellow-600"><strong>Warnings:</strong> {uploadResult.summary.warningRows} rows</p>
+                    )}
+                  </>
+                )}
+              </div>
             </div>
           )}
         </div>
@@ -224,20 +460,29 @@ export default function ExcelUploadModal({ isOpen, onClose }: ExcelUploadModalPr
           >
             Cancel
           </button>
+          {!showPreview && (
+            <button
+              onClick={handlePreview}
+              disabled={!selectedFile || !selectedDivision || isUploading || isUploaded}
+              className="px-4 py-2 border border-primary-500 text-primary-600 rounded-lg hover:bg-primary-50 disabled:border-gray-300 disabled:text-gray-400 disabled:cursor-not-allowed transition-colors font-medium"
+            >
+              Preview Data
+            </button>
+          )}
           <button
             onClick={handleUpload}
-            disabled={!selectedFile || isUploading || isUploaded}
+            disabled={!selectedFile || !selectedDivision || isUploading || isUploaded}
             className="px-4 py-2 bg-primary-500 hover:bg-primary-600 disabled:bg-primary-300 disabled:cursor-not-allowed text-white rounded-lg transition-colors font-medium flex items-center gap-2"
           >
             {isUploading ? (
               <>
                 <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                Uploading...
+                {showPreview ? 'Previewing...' : 'Uploading...'}
               </>
             ) : (
               <>
                 <UploadIcon className="w-4 h-4" />
-                Upload File
+                {showPreview ? 'Confirm & Upload' : 'Upload File'}
               </>
             )}
           </button>
