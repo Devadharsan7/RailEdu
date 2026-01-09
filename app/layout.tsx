@@ -2,8 +2,8 @@ import type { Metadata } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'LearnPoint - Admin Dashboard',
-  description: 'LearnPoint educational management platform',
+  title: 'RAILEDU - Admin Dashboard',
+  description: 'RAILEDU educational management platform',
 }
 
 export default function RootLayout({

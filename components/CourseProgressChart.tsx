@@ -3,12 +3,12 @@
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 
 const batchData = [
-  { batch: 'Jan-Feb', completed: 255, remaining: 65 },
-  { batch: 'Mar-Apr', completed: 255, remaining: 65 },
-  { batch: 'May-Jun', completed: 280, remaining: 40 },
-  { batch: 'Jul-Aug', completed: 265, remaining: 55 },
-  { batch: 'Sep-Oct', completed: 303, remaining: 17 },
-  { batch: 'Nov-Dec', completed: 325, remaining: 13 },
+  { batch: 'Jan-Feb', completed: 255 },
+  { batch: 'Mar-Apr', completed: 255 },
+  { batch: 'May-Jun', completed: 280 },
+  { batch: 'Jul-Aug', completed: 265 },
+  { batch: 'Sep-Oct', completed: 303 },
+  { batch: 'Nov-Dec', completed: 325 },
 ]
 
 export default function CourseProgressChart() {
@@ -29,8 +29,7 @@ export default function CourseProgressChart() {
               borderRadius: '8px',
             }}
           />
-          <Bar dataKey="completed" stackId="a" fill="#3b82f6" radius={[4, 4, 0, 0]} />
-          <Bar dataKey="remaining" stackId="a" fill="#e5e7eb" radius={[0, 0, 4, 4]} />
+          <Bar dataKey="completed" fill="#3b82f6" radius={[4, 4, 4, 4]} />
         </BarChart>
       </ResponsiveContainer>
     </div>

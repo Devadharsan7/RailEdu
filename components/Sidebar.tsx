@@ -23,7 +23,7 @@ export default function Sidebar() {
             <div className="bg-white rounded-sm"></div>
             <div className="bg-white rounded-sm"></div>
           </div>
-          <span className="text-xl font-bold text-gray-900">LearnPoint</span>
+          <span className="text-xl font-bold text-gray-900">RAILEDU</span>
         </div>
 
         <nav className="space-y-1">

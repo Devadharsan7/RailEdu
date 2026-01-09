@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Briefcase, Lock, Check, Settings, AlertCircle } from 'lucide-react'
+import { Briefcase, Lock, Settings, AlertCircle } from 'lucide-react'
 import Link from 'next/link'
 import { authenticate, saveAuth, CREDENTIALS } from '@/lib/auth'
 
@@ -44,9 +44,9 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
-      <div className="w-full max-w-6xl bg-white rounded-2xl shadow-xl overflow-hidden">
-        <div className="grid grid-cols-1 lg:grid-cols-2 min-h-[600px]">
-          {/* Left Section - Login Form */}
+      <div className="w-full max-w-2xl bg-white rounded-2xl shadow-xl overflow-hidden">
+        <div className="min-h-[600px]">
+          {/* Login Form */}
           <div className="p-8 lg:p-12 flex flex-col justify-center">
             {/* Branding */}
             <div className="flex items-center gap-2 mb-8">
@@ -56,7 +56,7 @@ export default function LoginPage() {
                 <div className="bg-white rounded-sm"></div>
                 <div className="bg-white rounded-sm"></div>
               </div>
-              <span className="text-2xl font-bold text-gray-800">LearnPoint</span>
+              <span className="text-2xl font-bold text-gray-800">RAILEDU</span>
             </div>
 
             {/* Welcome Message */}
@@ -161,57 +161,12 @@ export default function LoginPage() {
             <div className="text-center text-sm text-gray-600">
               Having trouble?{' '}
               <button
-                onClick={() => alert('Contact Support: Email: support@learnpoint.edu | Phone: 1-800-LEARN-PT')}
+                onClick={() => alert('Contact Support: Email: support@railedu.edu | Phone: 1-800-RAIL-EDU')}
                 className="text-primary-600 hover:text-primary-700 font-medium"
               >
                 Contact Support
               </button>
             </div>
-          </div>
-
-          {/* Right Section - Promotional Panel */}
-          <div className="bg-gradient-to-br from-blue-800 to-blue-900 p-8 lg:p-12 flex flex-col justify-center relative">
-            {/* Station Status Card */}
-            <div className="bg-gray-900/40 backdrop-blur-sm rounded-lg p-6 mb-8 border border-gray-700/50">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">
-                  STATION STATUS
-                </h3>
-                <div className="w-8 h-8 bg-primary-500 rounded-full flex items-center justify-center flex-shrink-0">
-                  <Check className="w-5 h-5 text-white" />
-                </div>
-              </div>
-              <div className="flex items-center gap-3 mb-4">
-                <h2 className="text-3xl font-bold text-white">Operational</h2>
-              </div>
-              <div className="w-full bg-gray-700/50 rounded-full h-2 mb-3">
-                <div className="bg-primary-500 h-2 rounded-full" style={{ width: '94%' }}></div>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-gray-300">Efficiency</span>
-                <span className="text-lg font-semibold text-white">94%</span>
-              </div>
-            </div>
-
-            {/* Main Heading */}
-            <div className="mb-6">
-              <div className="w-12 h-1 bg-primary-400 mb-4"></div>
-              <h2 className="text-4xl font-bold text-white mb-2 leading-tight">
-                Manage your{' '}
-                <span className="relative inline-block">
-                  courses
-                  <span className="absolute -top-4 left-0 text-xs text-primary-300 font-normal whitespace-nowrap">
-                    New Course Added
-                  </span>
-                </span>{' '}
-                & stations efficiently.
-              </h2>
-            </div>
-
-            {/* Description */}
-            <p className="text-lg text-white/90 leading-relaxed">
-              Streamline operations, track progress, and empower your crew with the LearnPoint management platform.
-            </p>
           </div>
         </div>
       </div>

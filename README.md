@@ -1,4 +1,4 @@
-# LearnPoint Admin Dashboard
+# RAILEDU Admin Dashboard
 
 A modern, responsive admin dashboard built with Next.js, TypeScript, and Tailwind CSS.
 
