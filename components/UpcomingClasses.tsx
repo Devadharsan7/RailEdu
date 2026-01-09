@@ -128,7 +128,7 @@ export default function UpcomingClasses() {
                 >
                   {classItem.status}
                 </span>
-                <div className="relative" ref={(el) => (menuRefs.current[index] = el)}>
+                <div className="relative" ref={(el) => { menuRefs.current[index] = el }}>
                   <button
                     onClick={() => toggleMenu(index)}
                     className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
