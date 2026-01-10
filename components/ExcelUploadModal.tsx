@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef } from 'react'
-import { Upload as UploadIcon, Download, X, FileSpreadsheet, CheckCircle } from 'lucide-react'
+import { Upload as UploadIcon, X, FileSpreadsheet, CheckCircle } from 'lucide-react'
 import { notificationStorage } from '@/lib/storage'
 
 interface ExcelUploadModalProps {
@@ -77,11 +77,6 @@ export default function ExcelUploadModal({ isOpen, onClose }: ExcelUploadModalPr
     if (e.target.files && e.target.files.length > 0) {
       handleFileSelect(e.target.files[0])
     }
-  }
-
-  const handleDownloadTemplate = () => {
-    alert('Download Template: A template Excel file will be downloaded with the required format for data import.')
-    // In a real application, this would download an actual template file
   }
 
   const handlePreview = async () => {
@@ -310,17 +305,6 @@ export default function ExcelUploadModal({ isOpen, onClose }: ExcelUploadModalPr
                 </option>
               ))}
             </select>
-          </div>
-
-          {/* Download Template Button */}
-          <div className="flex justify-end mb-4">
-            <button
-              onClick={handleDownloadTemplate}
-              className="text-primary-500 hover:text-primary-600 font-medium text-sm flex items-center gap-2 px-3 py-2 hover:bg-primary-50 rounded-lg transition-colors"
-            >
-              <Download className="w-4 h-4" />
-              Download Template
-            </button>
           </div>
 
           {/* Upload Area */}

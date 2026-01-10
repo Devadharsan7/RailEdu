@@ -1,36 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server'
 import * as XLSX from 'xlsx'
-import { initDatabase, dbDivisions, dbStations, dbUsers } from '@/lib/db'
+import connectDB from '@/lib/mongodb'
+import { ExcelFile, CrewCourse } from '@/lib/models'
+import { parseCrewId } from '@/lib/crewIdParser'
+import { v4 as uuidv4 } from 'uuid'
 
 interface ExcelRow {
   [key: string]: any
 }
 
-interface ParsedMember {
-  id: string
-  name: string
-  email?: string
-  phone?: string
-  crewId: string
-  role?: string
-  status: 'Active' | 'Inactive'
-  joinDate: string
-}
-
 export async function POST(request: NextRequest) {
   try {
-    // Initialize database tables if they don't exist (with error handling)
-    try {
-      await initDatabase()
-    } catch (dbInitError: any) {
-      console.error('Database initialization error (continuing anyway):', dbInitError.message)
-      // Continue processing even if DB init fails - we'll handle it later
-    }
+    // Connect to MongoDB
+    await connectDB()
 
     const formData = await request.formData()
     const file = formData.get('file') as File
-    const divisionId = formData.get('divisionId') as string
-    const divisionName = formData.get('divisionName') as string
+    const uploadedBy = formData.get('uploadedBy') as string || 'admin'
 
     if (!file) {
       return NextResponse.json(
@@ -39,20 +25,20 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    if (!divisionId || !divisionName) {
-      return NextResponse.json(
-        { error: 'Division selection is required' },
-        { status: 400 }
-      )
-    }
+    const excelName = file.name
 
-    // Get or create division (with error handling)
-    const divisionCode = divisionName.substring(0, 3).toUpperCase() // Extract code from name or use first 3 letters
-    try {
-      await dbDivisions.create(divisionId, divisionName, divisionCode)
-    } catch (dbError: any) {
-      console.error('Database error creating division:', dbError.message)
-      // Continue processing - we'll try to save later
+    // CRITICAL: Check if Excel file already exists by excelName
+    let existingExcelFile = await ExcelFile.findOne({ excelName })
+    let excelId: string
+
+    if (existingExcelFile) {
+      // Reuse existing excelId
+      excelId = existingExcelFile.excelId
+      console.log(`Reusing existing excelId: ${excelId} for file: ${excelName}`)
+    } else {
+      // Generate new excelId
+      excelId = uuidv4()
+      console.log(`Creating new excelId: ${excelId} for file: ${excelName}`)
     }
 
     // Read the file as buffer
@@ -94,61 +80,6 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Map of crew IDs to station names (you can expand this)
-    const stationCodeMap: { [key: string]: { name: string; code: string } } = {
-      'MAS': { name: 'Chennai Central', code: 'MAS' },
-      'MS': { name: 'Chennai Egmore', code: 'MS' },
-      'TBM': { name: 'Tambaram', code: 'TBM' },
-      'MDU': { name: 'Madurai Junction', code: 'MDU' },
-      'TEN': { name: 'Tirunelveli Junction', code: 'TEN' },
-      'DG': { name: 'Dindigul', code: 'DG' },
-      'SA': { name: 'Salem Junction', code: 'SA' },
-      'ED': { name: 'Erode Junction', code: 'ED' },
-      'CBE': { name: 'Coimbatore Junction', code: 'CBE' },
-      'TPJ': { name: 'Tiruchirappalli Junction', code: 'TPJ' },
-      'TJ': { name: 'Thanjavur Junction', code: 'TJ' },
-      'KMU': { name: 'Kumbakonam', code: 'KMU' },
-      'PGT': { name: 'Palakkad Junction', code: 'PGT' },
-      'SRR': { name: 'Shoranur Junction', code: 'SRR' },
-      'OTP': { name: 'Ottapalam', code: 'OTP' },
-      'TVC': { name: 'Thiruvananthapuram Central', code: 'TVC' },
-      'QLN': { name: 'Kollam Junction', code: 'QLN' },
-      'ALLP': { name: 'Alappuzha', code: 'ALLP' },
-      'AVD': { name: 'Arakkonam', code: 'AVD' },
-    }
-
-    // Parse members from Excel with validation
-    const parsedMembers: ParsedMember[] = []
-    const crewIdGroups: { [crewId: string]: ParsedMember[] } = {}
-    const errors: Array<{ row: number; message: string }> = []
-    const warnings: Array<{ row: number; message: string }> = []
-
-    // Normalize column names (case-insensitive matching with fuzzy matching)
-    const normalizeKey = (key: string, possibleKeys: string[]): string | null => {
-      if (!key) return null
-      const lowerKey = key.toLowerCase().trim().replace(/\s+/g, ' ')
-      for (const possibleKey of possibleKeys) {
-        const lowerPossible = possibleKey.toLowerCase().trim()
-        // Exact match
-        if (lowerKey === lowerPossible) {
-          return key
-        }
-        // Match with spaces removed
-        if (lowerKey.replace(/\s+/g, '') === lowerPossible.replace(/\s+/g, '')) {
-          return key
-        }
-        // Match with underscores/hyphens
-        if (lowerKey.replace(/[_\-\s]+/g, '') === lowerPossible.replace(/[_\-\s]+/g, '')) {
-          return key
-        }
-        // Partial match (contains the key)
-        if (lowerKey.includes(lowerPossible) || lowerPossible.includes(lowerKey)) {
-          return key
-        }
-      }
-      return null
-    }
-
     // Get all possible column names from first row
     const firstRow = data[0] || {}
     if (!firstRow || Object.keys(firstRow).length === 0) {
@@ -158,14 +89,30 @@ export async function POST(request: NextRequest) {
       )
     }
     const allKeys = Object.keys(firstRow)
-    console.log('First row sample:', JSON.stringify(firstRow, null, 2).substring(0, 500))
-    
-    // Find column mappings (try multiple variations with fallback)
+    console.log('Available columns in Excel:', allKeys)
+
+    // Normalize column names (case-insensitive matching)
+    const normalizeKey = (key: string, possibleKeys: string[]): string | null => {
+      if (!key) return null
+      const lowerKey = key.toLowerCase().trim().replace(/\s+/g, ' ')
+      for (const possibleKey of possibleKeys) {
+        const lowerPossible = possibleKey.toLowerCase().trim()
+        if (lowerKey === lowerPossible ||
+            lowerKey.replace(/\s+/g, '') === lowerPossible.replace(/\s+/g, '') ||
+            lowerKey.replace(/[_\-\s]+/g, '') === lowerPossible.replace(/[_\-\s]+/g, '') ||
+            lowerKey.includes(lowerPossible) || lowerPossible.includes(lowerKey)) {
+          return key
+        }
+      }
+      return null
+    }
+
+    // Find column mappings
     const crewIdKey = allKeys.find(k => 
       normalizeKey(k, [
         'crew id', 'crewid', 'crew_id', 'crew code',
         'station code', 'stationcode', 'station_code', 'station',
-        'code', 'crew code', 'employee code', 'staff code'
+        'code', 'employee code', 'staff code'
       ])
     ) || allKeys.find(k => {
       const lower = k.toLowerCase()
@@ -173,12 +120,12 @@ export async function POST(request: NextRequest) {
              (lower.includes('station') && lower.includes('code')) ||
              lower === 'code' || lower === 'station' || lower === 'crew'
     }) || null
-    
-    const nameKey = allKeys.find(k => 
+
+    const crewNameKey = allKeys.find(k => 
       normalizeKey(k, [
         'name', 'member name', 'membername', 'member_name',
         'full name', 'fullname', 'full_name', 'employee name',
-        'staff name', 'person name', 'worker name'
+        'staff name', 'person name', 'worker name', 'crew name', 'crewname'
       ])
     ) || allKeys.find(k => {
       const lower = k.toLowerCase()
@@ -187,185 +134,223 @@ export async function POST(request: NextRequest) {
              !lower.includes('user') &&
              !lower.includes('login')
     }) || null
-    
-    const emailKey = allKeys.find(k => 
-      normalizeKey(k, ['email', 'email id', 'emailid', 'email_id'])
-    ) || null
-    
-    const phoneKey = allKeys.find(k => 
-      normalizeKey(k, ['phone', 'mobile', 'phone number', 'phonenumber', 'phone_number'])
-    ) || null
-    
-    const roleKey = allKeys.find(k => 
-      normalizeKey(k, ['role', 'designation'])
-    ) || null
-    
-    const statusKey = allKeys.find(k => 
-      normalizeKey(k, ['status'])
+
+    const designationKey = allKeys.find(k => 
+      normalizeKey(k, ['designation', 'designation code', 'designationcode', 'designation_code', 'role', 'position'])
     ) || null
 
-    // Log available columns for debugging
-    console.log('Available columns in Excel:', allKeys)
-    console.log('Found crewIdKey:', crewIdKey)
-    console.log('Found nameKey:', nameKey)
+    const testCodeKey = allKeys.find(k => 
+      normalizeKey(k, ['test code', 'testcode', 'test_code', 'test', 'course code', 'coursecode'])
+    ) || null
+
+    const dueDateKey = allKeys.find(k => 
+      normalizeKey(k, ['due date', 'duedate', 'due_date', 'deadline', 'test date', 'testdate'])
+    ) || null
+
+    const testStatusKey = allKeys.find(k => 
+      normalizeKey(k, ['test status', 'teststatus', 'test_status', 'status', 'test result', 'testresult'])
+    ) || null
+
+    const reasonKey = allKeys.find(k => 
+      normalizeKey(k, ['reason', 'remarks', 'note', 'notes', 'comment', 'comments'])
+    ) || null
+
+    console.log('Column mappings:', {
+      crewIdKey,
+      crewNameKey,
+      designationKey,
+      testCodeKey,
+      dueDateKey,
+      testStatusKey,
+      reasonKey,
+    })
 
     if (!crewIdKey) {
-      const errorMsg = `Crew ID column not found. Available columns: ${allKeys.join(', ')}. Please ensure your Excel file has a column named "Crew ID", "Station Code", or "Code"`
-      console.error(errorMsg)
       return NextResponse.json(
-        { error: errorMsg },
+        { error: `Crew ID column not found. Available columns: ${allKeys.join(', ')}` },
         { status: 400 }
       )
     }
 
-    if (!nameKey) {
-      const errorMsg = `Name column not found. Available columns: ${allKeys.join(', ')}. Please ensure your Excel file has a column named "Name" or "Member Name"`
-      console.error(errorMsg)
+    if (!crewNameKey) {
       return NextResponse.json(
-        { error: errorMsg },
+        { error: `Crew Name column not found. Available columns: ${allKeys.join(', ')}` },
         { status: 400 }
       )
     }
+
+    // Parse rows and create crew_courses documents
+    const crewCoursesToInsert: Array<{
+      excelId: string
+      division: {
+        code: string
+      }
+      crew: {
+        crewId: string
+        crewName: string
+      }
+      designation: {
+        code: string
+      }
+      test: {
+        testCode: string
+        dueDate: Date
+      }
+      status: string
+      reason?: string
+      createdAt: Date
+    }> = []
+
+    const errors: Array<{ row: number; message: string }> = []
+    const warnings: Array<{ row: number; message: string }> = []
 
     data.forEach((row, index) => {
       const rowNumber = index + 2 // Excel row number (1-indexed, +1 for header)
-      
-      // Get crew ID
-      const crewId = row[crewIdKey]?.toString().trim() || ''
-      if (!crewId) {
+
+      // Get full crew ID (e.g., "MAS1456")
+      const fullCrewId = row[crewIdKey]?.toString().trim() || ''
+      if (!fullCrewId) {
         errors.push({ row: rowNumber, message: 'Missing Crew ID' })
         return
       }
 
-      const crewIdUpper = crewId.toUpperCase()
+      // CRITICAL: Parse crewId to extract division code and numeric crewId
+      const parsed = parseCrewId(fullCrewId)
+      if (!parsed) {
+        errors.push({ row: rowNumber, message: `Invalid Crew ID format: ${fullCrewId}` })
+        return
+      }
+
+      const { divisionCode, crewId } = parsed
+
+      // Get crew name
+      const crewName = row[crewNameKey]?.toString().trim() || ''
+      if (!crewName) {
+        warnings.push({ row: rowNumber, message: 'Crew Name is missing' })
+      }
+
+      // Get designation code
+      const designationCode = (designationKey ? row[designationKey]?.toString().trim() : '') || 'UNKNOWN'
       
-      // Get member details with validation
-      const name = (nameKey ? (row[nameKey]?.toString().trim() || '') : '').trim()
-      if (!name || name === 'Unknown') {
-        warnings.push({ row: rowNumber, message: 'Name is missing or invalid' })
-      }
+      // Get test code
+      const testCode = (testCodeKey ? row[testCodeKey]?.toString().trim() : '') || `TEST-${index + 1}`
       
-      const email = (emailKey ? (row[emailKey]?.toString().trim() || '') : '').trim()
-      if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-        warnings.push({ row: rowNumber, message: 'Invalid email format' })
+      // Get due date
+      let dueDate: Date
+      if (dueDateKey && row[dueDateKey]) {
+        const dateValue = row[dueDateKey]
+        if (dateValue instanceof Date) {
+          dueDate = dateValue
+        } else if (typeof dateValue === 'number') {
+          // Excel date serial number (days since 1900-01-01)
+          try {
+            // Excel epoch is 1899-12-30 (not 1900-01-01 due to Excel bug)
+            const excelEpoch = new Date(1899, 11, 30)
+            dueDate = new Date(excelEpoch.getTime() + dateValue * 86400000)
+            if (isNaN(dueDate.getTime()) || dueDate.getFullYear() < 1900 || dueDate.getFullYear() > 2100) {
+              dueDate = new Date()
+              warnings.push({ row: rowNumber, message: 'Invalid Excel date, using today' })
+            }
+          } catch {
+            dueDate = new Date()
+            warnings.push({ row: rowNumber, message: 'Invalid date format, using today' })
+          }
+        } else if (typeof dateValue === 'string') {
+          // Try to parse string date
+          const parsed = new Date(dateValue)
+          if (!isNaN(parsed.getTime()) && parsed.getFullYear() >= 1900 && parsed.getFullYear() <= 2100) {
+            dueDate = parsed
+          } else {
+            dueDate = new Date()
+            warnings.push({ row: rowNumber, message: 'Invalid date string, using today' })
+          }
+        } else {
+          dueDate = new Date()
+          warnings.push({ row: rowNumber, message: 'Due date missing, using today' })
+        }
+      } else {
+        dueDate = new Date()
+        warnings.push({ row: rowNumber, message: 'Due date missing, using today' })
       }
-      
-      const phone = (phoneKey ? (row[phoneKey]?.toString().trim() || '') : '').trim()
-      const role = (roleKey ? (row[roleKey]?.toString().trim() || 'Crew') : 'Crew').trim()
-      const statusRaw = (statusKey ? (row[statusKey]?.toString().trim() || 'Active') : 'Active').trim()
-      const status = statusRaw.toLowerCase() === 'active' ? 'Active' : 'Inactive'
 
-      // Generate unique ID based on crew ID and name (for duplicate detection)
-      const uniqueId = `${divisionId}-${crewIdUpper}-${name.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}-${index}`
+      // Get test status
+      const testStatus = (testStatusKey ? row[testStatusKey]?.toString().trim() : '') || 'PENDING'
 
-      const member: ParsedMember = {
-        id: uniqueId,
-        name: name || 'Unknown Member',
-        email: email || undefined,
-        phone: phone || undefined,
-        crewId: crewIdUpper,
-        role: role || 'Crew',
-        status: status,
-        joinDate: new Date().toISOString().split('T')[0],
-      }
+      // Get reason (optional)
+      const reason = (reasonKey ? row[reasonKey]?.toString().trim() : '') || undefined
 
-      parsedMembers.push(member)
-
-      // Group by crew ID
-      if (!crewIdGroups[crewIdUpper]) {
-        crewIdGroups[crewIdUpper] = []
-      }
-      crewIdGroups[crewIdUpper].push(member)
+      // Create crew course document with separated division and crewId
+      crewCoursesToInsert.push({
+        excelId,
+        division: {
+          code: divisionCode,
+        },
+        crew: {
+          crewId: crewId, // numeric part only (e.g., "1456")
+          crewName: crewName || 'Unknown',
+        },
+        designation: {
+          code: designationCode.toUpperCase(),
+        },
+        test: {
+          testCode: testCode.toUpperCase(),
+          dueDate,
+        },
+        status: testStatus.toUpperCase(),
+        reason: reason,
+        createdAt: new Date(),
+      })
     })
 
-    // Organize by stations and save to database
-    const stationsByCrewId: { [crewId: string]: { name: string; code: string; users: ParsedMember[] } } = {}
-    const usersToSave: Array<{
-      id: string
-      name: string
-      email?: string
-      phone?: string
-      role?: string
-      status?: string
-      crewId?: string
-      divisionId?: string
-      stationId?: string
-      joinDate?: string
-    }> = []
-
-    // Process each crew ID group
-    for (const crewId of Object.keys(crewIdGroups)) {
-      const stationInfo = stationCodeMap[crewId] || { name: `${crewId} Station`, code: crewId }
-      const stationId = `${divisionId}-${crewId}-${Date.now()}`
-      
-      // Create or get station (with error handling)
-      let station = null
-      try {
-        station = await dbStations.getByCode(divisionId, stationInfo.code)
-        if (!station) {
-          await dbStations.create(stationId, divisionId, stationInfo.name, stationInfo.code)
-          station = { id: stationId, division_id: divisionId, name: stationInfo.name, code: stationInfo.code }
-        }
-      } catch (dbError: any) {
-        console.error(`Database error creating station ${crewId}:`, dbError.message)
-        // Create a temporary station object for processing
-        station = { id: stationId, division_id: divisionId, name: stationInfo.name, code: stationInfo.code }
-      }
-
-      stationsByCrewId[crewId] = {
-        name: stationInfo.name,
-        code: stationInfo.code,
-        users: crewIdGroups[crewId],
-      }
-
-      // Prepare users for batch insert
-      crewIdGroups[crewId].forEach(member => {
-        usersToSave.push({
-          id: member.id,
-          name: member.name,
-          email: member.email || undefined,
-          phone: member.phone || undefined,
-          role: member.role || 'Crew',
-          status: member.status,
-          crewId: member.crewId,
-          divisionId: divisionId,
-          stationId: station.id,
-          joinDate: member.joinDate,
-        })
-      })
+    if (crewCoursesToInsert.length === 0) {
+      return NextResponse.json(
+        { error: 'No valid rows found in Excel file' },
+        { status: 400 }
+      )
     }
 
-    // Save all users to database in batch (with error handling)
-    let dbSaveSuccess = false
-    if (usersToSave.length > 0) {
-      try {
-        await dbUsers.createBatch(usersToSave)
-        dbSaveSuccess = true
-      } catch (dbError: any) {
-        console.error('Database error saving users:', dbError.message)
-        // Continue - data is still parsed and can be returned
-        // The frontend can save to localStorage as fallback
-      }
+    // Save or update excel_files document
+    const excelFileData = {
+      excelId,
+      excelName,
+      uploadedAt: new Date(),
+      uploadedBy,
+      totalRecords: crewCoursesToInsert.length,
+      status: 'ACTIVE' as const,
     }
+
+    await ExcelFile.findOneAndUpdate(
+      { excelId },
+      excelFileData,
+      { upsert: true, new: true }
+    )
+
+    // Delete existing crew_courses for this excelId (if re-uploading)
+    if (existingExcelFile) {
+      await CrewCourse.deleteMany({ excelId })
+      console.log(`Deleted existing crew_courses for excelId: ${excelId}`)
+    }
+
+    // Insert all crew_courses documents
+    await CrewCourse.insertMany(crewCoursesToInsert)
+
+    console.log(`Successfully saved ${crewCoursesToInsert.length} crew courses to database`)
 
     return NextResponse.json({
       success: true,
-      message: dbSaveSuccess 
-        ? `Successfully parsed and saved ${parsedMembers.length} members to database`
-        : `Successfully parsed ${parsedMembers.length} members (database save failed, using fallback)`,
+      message: existingExcelFile
+        ? `Successfully re-uploaded and updated ${crewCoursesToInsert.length} records for existing file: ${excelName}`
+        : `Successfully uploaded ${crewCoursesToInsert.length} records from new file: ${excelName}`,
       data: {
-        divisionId,
-        divisionName,
-        totalMembers: parsedMembers.length,
-        stationsCount: Object.keys(stationsByCrewId).length,
-        stations: stationsByCrewId,
-        members: parsedMembers,
-        savedToDatabase: dbSaveSuccess,
+        excelId,
+        excelName,
+        totalRecords: crewCoursesToInsert.length,
+        isReupload: !!existingExcelFile,
         errors: errors.length > 0 ? errors : undefined,
         warnings: warnings.length > 0 ? warnings : undefined,
         summary: {
           totalRows: data.length,
-          successfulRows: parsedMembers.length,
+          successfulRows: crewCoursesToInsert.length,
           errorRows: errors.length,
           warningRows: warnings.length,
         },
@@ -374,34 +359,25 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     console.error('Error processing Excel file:', error)
     console.error('Error stack:', error.stack)
-    
-    // Provide more detailed error message
+
     let errorMessage = 'Failed to process Excel file'
     let errorDetails = error.message || 'Unknown error'
-    
-    // Check for specific error types
-    if (error.message?.includes('DATABASE_URL')) {
+
+    if (error.message?.includes('connection') || error.message?.includes('Mongo')) {
       errorMessage = 'Database connection error'
-      errorDetails = 'Database is not configured. Please check your DATABASE_URL environment variable.'
-    } else if (error.message?.includes('ECONNREFUSED') || error.message?.includes('connection')) {
-      errorMessage = 'Database connection failed'
-      errorDetails = 'Unable to connect to the database. Please check your database connection settings.'
+      errorDetails = 'Unable to connect to MongoDB. Please check your connection string.'
     } else if (error.message?.includes('parse') || error.message?.includes('Excel')) {
       errorMessage = 'Excel file parsing error'
       errorDetails = error.message
-    } else if (error.message?.includes('column') || error.message?.includes('Column')) {
-      errorMessage = 'Excel column error'
-      errorDetails = error.message
     }
-    
+
     return NextResponse.json(
-      { 
-        error: errorMessage, 
+      {
+        error: errorMessage,
         details: errorDetails,
-        stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        stack: process.env.NODE_ENV === 'development' ? error.stack : undefined,
       },
       { status: 500 }
     )
   }
 }
-

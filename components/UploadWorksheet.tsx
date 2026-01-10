@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef } from 'react'
-import { Upload as UploadIcon, Download } from 'lucide-react'
+import { Upload as UploadIcon } from 'lucide-react'
 
 export default function UploadWorksheet() {
   const [isDragging, setIsDragging] = useState(false)
@@ -39,12 +39,8 @@ export default function UploadWorksheet() {
 
   return (
     <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-      <div className="flex items-center justify-between mb-6">
+      <div className="mb-6">
         <h3 className="text-lg font-semibold text-gray-900">Upload Worksheet</h3>
-        <button className="text-primary-500 hover:text-primary-600 font-medium text-sm flex items-center gap-1">
-          <Download className="w-4 h-4" />
-          Download Template
-        </button>
       </div>
 
       <div
@@ -80,6 +76,7 @@ export default function UploadWorksheet() {
     </div>
   )
 }
+
 
 
 
