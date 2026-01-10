@@ -2,6 +2,9 @@ import { NextResponse } from 'next/server'
 import connectDB from '@/lib/mongodb'
 import { ExcelFile, CrewCourse } from '@/lib/models'
 
+// Mark route as dynamic
+export const dynamic = 'force-dynamic'
+
 // GET all excel files
 export async function GET() {
   try {

@@ -2,6 +2,9 @@ import { NextResponse } from 'next/server'
 import connectDB from '@/lib/mongodb'
 import { CrewCourse } from '@/lib/models'
 
+// Mark route as dynamic
+export const dynamic = 'force-dynamic'
+
 // GET all divisions with their stations and users
 // Returns structure compatible with frontend expectations
 export async function GET() {

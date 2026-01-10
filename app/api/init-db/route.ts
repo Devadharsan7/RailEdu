@@ -2,6 +2,9 @@ import { NextResponse } from 'next/server'
 import connectDB from '@/lib/mongodb'
 import { ExcelFile, CrewCourse } from '@/lib/models'
 
+// Mark route as dynamic
+export const dynamic = 'force-dynamic'
+
 // MongoDB doesn't need table initialization, but we can test the connection
 // and ensure indexes are created
 export async function GET() {
