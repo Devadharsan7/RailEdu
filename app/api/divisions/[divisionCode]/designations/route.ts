@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import connectDB from '@/lib/mongodb'
 import { CrewCourse } from '@/lib/models'
 
+// Mark route as dynamic
+export const dynamic = 'force-dynamic'
+
 // GET distinct designations for a division - returns array of designation codes
 // Example: /api/divisions/TBM/designations
 // Returns: ["LPM", "MMAN", "SHT"]

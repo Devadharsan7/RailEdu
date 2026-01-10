@@ -5,6 +5,9 @@ import { ExcelFile, CrewCourse } from '@/lib/models'
 import { parseCrewId } from '@/lib/crewIdParser'
 import { v4 as uuidv4 } from 'uuid'
 
+// Mark route as dynamic
+export const dynamic = 'force-dynamic'
+
 interface ExcelRow {
   [key: string]: any
 }

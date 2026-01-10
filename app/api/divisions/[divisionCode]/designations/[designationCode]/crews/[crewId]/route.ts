@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import connectDB from '@/lib/mongodb'
 import { CrewCourse } from '@/lib/models'
 
+// Mark route as dynamic
+export const dynamic = 'force-dynamic'
+
 // GET user details for a specific crew
 // Example: /api/divisions/TBM/designations/MMAN/crews/1844
 // Returns: Full details including crew name, due date, test code, status, reason

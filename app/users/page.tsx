@@ -56,7 +56,7 @@ export default function UsersPage() {
         // Extract unique division codes from crew courses
         const uniqueDivisions = Array.from(
           new Set(coursesResult.data.map((course: CrewCourseData) => course.division))
-        ).sort()
+        ).sort() as string[]
         setDivisions(uniqueDivisions)
       }
     } catch (error) {

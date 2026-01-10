@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import connectDB from '@/lib/mongodb'
 import { CrewCourse } from '@/lib/models'
 
+// Mark route as dynamic
+export const dynamic = 'force-dynamic'
+
 // GET crews/users for a division + designation combination - returns array of users
 // Example: /api/divisions/TBM/designations/MMAN/crews
 // Returns: [{ crewId: "1844", crewName: "DEVAKUMAR.M" }, ...]
