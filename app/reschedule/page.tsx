@@ -5,7 +5,8 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import StudentSidebar from '@/components/StudentSidebar'
 import StudentHeader from '@/components/StudentHeader'
-import { ArrowLeft, Check, MoreVertical } from 'lucide-react'
+import { Check, MoreVertical } from 'lucide-react'
+import BackButton from '@/components/BackButton'
 import { rescheduleStorage, notificationStorage } from '@/lib/storage'
 import { getAuthUser } from '@/lib/auth'
 
@@ -74,13 +75,7 @@ function RescheduleContent() {
         <StudentHeader />
         <main className="pt-16 p-6">
           <div className="max-w-2xl mx-auto">
-            <button
-              onClick={() => router.back()}
-              className="flex items-center gap-2 text-gray-600 hover:text-gray-900 mb-6"
-            >
-              <ArrowLeft className="w-5 h-5" />
-              Back
-            </button>
+            <BackButton />
 
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
               <div className="flex items-center justify-between mb-6">

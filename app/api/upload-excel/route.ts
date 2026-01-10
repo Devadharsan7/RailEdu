@@ -17,10 +17,42 @@ export async function POST(request: NextRequest) {
     const formData = await request.formData()
     const file = formData.get('file') as File
     const uploadedBy = formData.get('uploadedBy') as string || 'admin'
+    const sheetName = formData.get('sheetName') as string
+    const stationId = formData.get('stationId') as string
+    const stationName = formData.get('stationName') as string
+    const stationCode = formData.get('stationCode') as string
+    const courseName = formData.get('courseName') as string
+    const courseTiming = formData.get('courseTiming') as string
+    const numberOfBatches = parseInt(formData.get('numberOfBatches') as string) || 1
+    const membersPerClass = parseInt(formData.get('membersPerClass') as string) || 0
+    const totalMembers = parseInt(formData.get('totalMembers') as string) || 0
+    const batchMonths = formData.get('batchMonths') as string
+    const batchYear = parseInt(formData.get('batchYear') as string) || new Date().getFullYear()
 
     if (!file) {
       return NextResponse.json(
         { error: 'No file provided' },
+        { status: 400 }
+      )
+    }
+
+    if (!sheetName) {
+      return NextResponse.json(
+        { error: 'Sheet name is required' },
+        { status: 400 }
+      )
+    }
+
+    if (!stationId || !stationName || !stationCode) {
+      return NextResponse.json(
+        { error: 'Station information is required' },
+        { status: 400 }
+      )
+    }
+
+    if (!courseName || !courseTiming) {
+      return NextResponse.json(
+        { error: 'Course name and timing are required' },
         { status: 400 }
       )
     }
@@ -45,8 +77,8 @@ export async function POST(request: NextRequest) {
     const bytes = await file.arrayBuffer()
     const buffer = Buffer.from(bytes)
 
-    // Parse Excel file
-    let workbook, sheetName, worksheet, data: ExcelRow[]
+    // Parse Excel file - use the selected sheet
+    let workbook, worksheet, data: ExcelRow[]
     try {
       workbook = XLSX.read(buffer, { type: 'buffer' })
       if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
@@ -55,7 +87,15 @@ export async function POST(request: NextRequest) {
           { status: 400 }
         )
       }
-      sheetName = workbook.SheetNames[0]
+      
+      // Use the selected sheet name
+      if (!workbook.SheetNames.includes(sheetName)) {
+        return NextResponse.json(
+          { error: `Sheet "${sheetName}" not found in Excel file` },
+          { status: 400 }
+        )
+      }
+      
       worksheet = workbook.Sheets[sheetName]
       if (!worksheet) {
         return NextResponse.json(
@@ -344,7 +384,22 @@ export async function POST(request: NextRequest) {
       data: {
         excelId,
         excelName,
+        sheetName,
+        station: {
+          id: stationId,
+          name: stationName,
+          code: stationCode,
+        },
+        course: {
+          name: courseName,
+          timing: courseTiming,
+          numberOfBatches,
+          membersPerClass,
+          batchMonths: batchMonths ? JSON.parse(batchMonths) : [],
+          batchYear,
+        },
         totalRecords: crewCoursesToInsert.length,
+        totalMembers,
         isReupload: !!existingExcelFile,
         errors: errors.length > 0 ? errors : undefined,
         warnings: warnings.length > 0 ? warnings : undefined,

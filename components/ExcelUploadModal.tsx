@@ -1,34 +1,73 @@
 'use client'
 
 import { useState, useRef } from 'react'
-import { Upload as UploadIcon, X, FileSpreadsheet, CheckCircle } from 'lucide-react'
+import { Upload as UploadIcon, X, FileSpreadsheet, CheckCircle, ArrowRight, ArrowLeft, AlertCircle } from 'lucide-react'
 import { notificationStorage } from '@/lib/storage'
+import * as XLSX from 'xlsx'
 
 interface ExcelUploadModalProps {
   isOpen: boolean
   onClose: () => void
 }
 
-const divisions = [
-  { id: '1', name: 'Chennai', code: 'MAS' },
-  { id: '2', name: 'Madurai', code: 'MDU' },
-  { id: '3', name: 'Salem', code: 'SA' },
-  { id: '4', name: 'Tiruchirappalli', code: 'TPJ' },
-  { id: '5', name: 'Palakkad', code: 'PGT' },
-  { id: '6', name: 'Thiruvananthapuram', code: 'TVC' },
+// Station list - you can fetch this from API or keep it static
+const stations = [
+  { id: '1', name: 'Chennai Central', code: 'MAS' },
+  { id: '2', name: 'Chennai Egmore', code: 'MS' },
+  { id: '3', name: 'Tambaram', code: 'TBM' },
+  { id: '4', name: 'Madurai Junction', code: 'MDU' },
+  { id: '5', name: 'Tirunelveli Junction', code: 'TEN' },
+  { id: '6', name: 'Dindigul', code: 'DG' },
+  { id: '7', name: 'Salem Junction', code: 'SA' },
+  { id: '8', name: 'Erode Junction', code: 'ED' },
+  { id: '9', name: 'Coimbatore Junction', code: 'CBE' },
+  { id: '10', name: 'Tiruchirappalli Junction', code: 'TPJ' },
+  { id: '11', name: 'Thanjavur Junction', code: 'TJ' },
+  { id: '12', name: 'Kumbakonam', code: 'KMU' },
+  { id: '13', name: 'Palakkad Junction', code: 'PGT' },
+  { id: '14', name: 'Shoranur Junction', code: 'SRR' },
+  { id: '15', name: 'Ottapalam', code: 'OTP' },
+  { id: '16', name: 'Thiruvananthapuram Central', code: 'TVC' },
+  { id: '17', name: 'Kollam Junction', code: 'QLN' },
+  { id: '18', name: 'Alappuzha', code: 'ALLP' },
 ]
 
+type Step = 'upload' | 'sheet' | 'station' | 'config' | 'uploading'
+
 export default function ExcelUploadModal({ isOpen, onClose }: ExcelUploadModalProps) {
+  const [currentStep, setCurrentStep] = useState<Step>('upload')
   const [isDragging, setIsDragging] = useState(false)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
-  const [selectedDivision, setSelectedDivision] = useState<string>('')
+  const [excelSheets, setExcelSheets] = useState<string[]>([])
+  const [selectedSheet, setSelectedSheet] = useState<string>('')
+  const [selectedStation, setSelectedStation] = useState<string>('')
+  const [courseName, setCourseName] = useState('')
+  const [courseTiming, setCourseTiming] = useState('')
+  const [numberOfBatches, setNumberOfBatches] = useState<number>(1)
+  const [membersPerClass, setMembersPerClass] = useState<number>(0)
+  const [totalMembers, setTotalMembers] = useState<number>(0)
+  const [selectedMonths, setSelectedMonths] = useState<string[]>([])
+  const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear())
   const [isUploading, setIsUploading] = useState(false)
-  const [isUploaded, setIsUploaded] = useState(false)
-  const [uploadResult, setUploadResult] = useState<any>(null)
   const [uploadProgress, setUploadProgress] = useState(0)
-  const [previewData, setPreviewData] = useState<any>(null)
-  const [showPreview, setShowPreview] = useState(false)
+  const [validationError, setValidationError] = useState<string>('')
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const months = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
+  ]
+
+  const monthPairs = [
+    { label: 'Jan - Feb', months: ['January', 'February'] },
+    { label: 'Mar - Apr', months: ['March', 'April'] },
+    { label: 'May - Jun', months: ['May', 'June'] },
+    { label: 'Jul - Aug', months: ['July', 'August'] },
+    { label: 'Sep - Oct', months: ['September', 'October'] },
+    { label: 'Nov - Dec', months: ['November', 'December'] },
+  ]
+
+  const years = Array.from({ length: 10 }, (_, i) => new Date().getFullYear() + i - 2)
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault()
@@ -49,12 +88,8 @@ export default function ExcelUploadModal({ isOpen, onClose }: ExcelUploadModalPr
     }
   }
 
-  const handleFileSelect = (file: File) => {
+  const handleFileSelect = async (file: File) => {
     // Validate file type
-    const validTypes = [
-      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      'application/vnd.ms-excel',
-    ]
     const validExtensions = ['.xlsx', '.xls']
     const fileExtension = file.name.substring(file.name.lastIndexOf('.')).toLowerCase()
 
@@ -70,7 +105,35 @@ export default function ExcelUploadModal({ isOpen, onClose }: ExcelUploadModalPr
     }
 
     setSelectedFile(file)
-    setIsUploaded(false)
+
+    // Read Excel file to detect sheets
+    try {
+      const bytes = await file.arrayBuffer()
+      const workbook = XLSX.read(bytes, { type: 'array' })
+      const sheetNames = workbook.SheetNames
+
+      if (sheetNames.length === 0) {
+        alert('Excel file has no sheets')
+        return
+      }
+
+      setExcelSheets(sheetNames)
+      
+      // If only one sheet, auto-select it
+      if (sheetNames.length === 1) {
+        setSelectedSheet(sheetNames[0])
+        // Count rows in the sheet
+        const worksheet = workbook.Sheets[sheetNames[0]]
+        const data = XLSX.utils.sheet_to_json(worksheet, { defval: '' })
+        setTotalMembers(data.length - 1) // Subtract header row
+        setCurrentStep('station')
+      } else {
+        setCurrentStep('sheet')
+      }
+    } catch (error: any) {
+      alert(`Error reading Excel file: ${error.message}`)
+      setSelectedFile(null)
+    }
   }
 
   const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -79,74 +142,113 @@ export default function ExcelUploadModal({ isOpen, onClose }: ExcelUploadModalPr
     }
   }
 
-  const handlePreview = async () => {
-    if (!selectedFile || !selectedDivision) return
-
-    setIsUploading(true)
-    setUploadProgress(20)
-
-    try {
-      const formData = new FormData()
-      formData.append('file', selectedFile)
-      
-      const division = divisions.find(d => d.id === selectedDivision)
-      if (!division) {
-        throw new Error('Division not found')
+  const handleSheetSelect = async (sheetName: string) => {
+    setSelectedSheet(sheetName)
+    
+    // Count rows in selected sheet
+    if (selectedFile) {
+      try {
+        const bytes = await selectedFile.arrayBuffer()
+        const workbook = XLSX.read(bytes, { type: 'array' })
+        const worksheet = workbook.Sheets[sheetName]
+        const data = XLSX.utils.sheet_to_json(worksheet, { defval: '' })
+        setTotalMembers(data.length - 1) // Subtract header row
+      } catch (error) {
+        console.error('Error counting rows:', error)
       }
-      
-      formData.append('divisionId', division.id)
-      formData.append('divisionName', division.name)
-      formData.append('preview', 'true') // Request preview mode
+    }
+    
+    setCurrentStep('station')
+  }
 
-      setUploadProgress(40)
-      const response = await fetch('/api/upload-excel', {
-        method: 'POST',
-        body: formData,
-      })
+  const handleNextFromStation = () => {
+    if (!selectedStation) {
+      alert('Please select a station')
+      return
+    }
+    setCurrentStep('config')
+  }
 
-      const result = await response.json()
-      setUploadProgress(80)
+  const handleMembersPerClassChange = (value: number) => {
+    setMembersPerClass(value)
+    setValidationError('')
 
-      if (!response.ok) {
-        throw new Error(result.error || 'Preview failed')
-      }
+    // Validation: If members per class is too high
+    const totalCapacity = numberOfBatches * value
+    if (totalCapacity > totalMembers * 2) {
+      setValidationError(
+        `Warning: You have set ${value} members per class, but there are only ${totalMembers} members. Please select a lower value (recommended: ${Math.ceil(totalMembers / numberOfBatches)} or less).`
+      )
+    } else if (totalCapacity < totalMembers) {
+      setValidationError(
+        `Warning: You have ${totalMembers} members, but capacity is only ${totalCapacity} (${numberOfBatches} batches × ${value} per class). Please increase members per class to at least ${Math.ceil(totalMembers / numberOfBatches)}.`
+      )
+    }
+  }
 
-      setPreviewData(result.data)
-      setShowPreview(true)
-      setUploadProgress(100)
-      setIsUploading(false)
-    } catch (error: any) {
-      alert(`Preview Error: ${error.message}`)
-      setIsUploading(false)
-      setUploadProgress(0)
+  const handleBatchesChange = (value: number) => {
+    setNumberOfBatches(value)
+    setValidationError('')
+
+    // Re-validate members per class
+    if (membersPerClass > 0) {
+      handleMembersPerClassChange(membersPerClass)
     }
   }
 
   const handleUpload = async () => {
-    if (!selectedFile) {
-      alert('Please select a file to upload')
+    if (!selectedFile || !selectedSheet || !selectedStation) {
+      alert('Please complete all steps')
       return
     }
 
-    if (!selectedDivision) {
-      alert('Please select a division')
+    if (!courseName || !courseTiming) {
+      alert('Please fill in course name and timing')
+      return
+    }
+
+    if (membersPerClass <= 0) {
+      alert('Please set members per class')
+      return
+    }
+
+    if (selectedMonths.length === 0) {
+      alert('Please select at least one batch month')
+      return
+    }
+
+    // Final validation
+    const totalCapacity = numberOfBatches * membersPerClass
+    if (totalCapacity < totalMembers) {
+      const minRequired = Math.ceil(totalMembers / numberOfBatches)
+      alert(`Cannot proceed: You have ${totalMembers} members but capacity is only ${totalCapacity}. Please increase members per class to at least ${minRequired}.`)
       return
     }
 
     setIsUploading(true)
     setUploadProgress(10)
+    setCurrentStep('uploading')
 
     try {
       const formData = new FormData()
       formData.append('file', selectedFile)
+      formData.append('sheetName', selectedSheet)
       
-      const division = divisions.find(d => d.id === selectedDivision)
-      if (!division) {
-        throw new Error('Division not found')
+      const station = stations.find(s => s.id === selectedStation)
+      if (!station) {
+        throw new Error('Station not found')
       }
       
-      formData.append('divisionId', division.id)
-      formData.append('divisionName', division.name)
+      formData.append('stationId', station.id)
+      formData.append('stationName', station.name)
+      formData.append('stationCode', station.code)
+      formData.append('courseName', courseName)
+      formData.append('courseTiming', courseTiming)
+      formData.append('numberOfBatches', numberOfBatches.toString())
+      formData.append('membersPerClass', membersPerClass.toString())
+      formData.append('totalMembers', totalMembers.toString())
+      formData.append('batchMonths', JSON.stringify(selectedMonths))
+      formData.append('batchYear', selectedYear.toString())
 
       setUploadProgress(30)
       const response = await fetch('/api/upload-excel', {
@@ -159,107 +261,66 @@ export default function ExcelUploadModal({ isOpen, onClose }: ExcelUploadModalPr
       setUploadProgress(80)
 
       if (!response.ok) {
-        const errorMsg = result.error || 'Upload failed'
-        const errorDetails = result.details ? `: ${result.details}` : ''
-        throw new Error(`${errorMsg}${errorDetails}`)
-      }
-
-      // Data is already saved to database by the API
-      // Also save to localStorage as backup
-      const { divisionStorage } = require('@/lib/storage')
-      
-      // Ensure division exists in localStorage
-      let divisionData = divisionStorage.getById(selectedDivision)
-      if (!divisionData) {
-        // Create division if it doesn't exist
-        const newDivision = {
-          id: selectedDivision,
-          name: division.name,
-          code: division.code || division.name.substring(0, 3).toUpperCase(),
-          stations: [],
-        }
-        divisionStorage.save(newDivision)
-        divisionData = newDivision
-      }
-      
-      // Save users to stations
-      if (result.data.stations) {
-        Object.keys(result.data.stations).forEach(crewId => {
-          const stationData = result.data.stations[crewId]
-          const users = stationData.users.map((u: any, index: number) => ({
-            id: u.id || `${selectedDivision}-${crewId}-${Date.now()}-${index}-${Math.random().toString(36).substr(2, 5)}`,
-            name: u.name || 'Unknown',
-            email: u.email || '',
-            phone: u.phone || '',
-            role: u.role || 'Crew',
-            status: u.status || 'Active',
-            joinDate: u.joinDate || new Date().toISOString().split('T')[0],
-            division: division.name,
-            station: stationData.name,
-            crewId: crewId,
-          }))
-          
-          divisionStorage.addUsersToStation(
-            selectedDivision,
-            stationData.code,
-            users,
-            stationData.name // Pass station name
-          )
-        })
-        
-        // Trigger event to refresh users page
-        window.dispatchEvent(new Event('divisionsUpdated'))
+        throw new Error(result.error || 'Upload failed')
       }
 
       notificationStorage.add({
         title: 'Excel File Uploaded',
-        message: `Successfully imported ${result.data.totalMembers} members from ${Object.keys(result.data.stations).length} stations.`,
+        message: `Successfully uploaded ${totalMembers} members to ${station.name}. Course: ${courseName}`,
         type: 'success',
       })
 
-      setUploadResult(result.data)
       setUploadProgress(100)
-      setIsUploading(false)
-      setIsUploaded(true)
       
-      // Reset after showing success
+      // Reset and close after 2 seconds
       setTimeout(() => {
-        setSelectedFile(null)
-        setSelectedDivision('')
-        setIsUploaded(false)
-        setUploadResult(null)
-        setUploadProgress(0)
-        setShowPreview(false)
-        setPreviewData(null)
+        handleReset()
         onClose()
-        // Trigger custom event to refresh users page
         window.dispatchEvent(new Event('divisionsUpdated'))
-        // Also reload the page to ensure everything is fresh
-        window.location.reload()
-      }, 3000)
+      }, 2000)
     } catch (error: any) {
-      const errorMessage = error.message || 'Failed to upload and process Excel file'
-      notificationStorage.add({
-        title: 'Upload Failed',
-        message: errorMessage,
-        type: 'error',
-      })
+      alert(`Upload Error: ${error.message}`)
       setIsUploading(false)
+      setCurrentStep('config')
       setUploadProgress(0)
-      alert(`Error: ${errorMessage}`)
     }
   }
 
-  const handleClose = () => {
+  const handleReset = () => {
+    setCurrentStep('upload')
     setSelectedFile(null)
-    setSelectedDivision('')
-    setIsUploaded(false)
-    setIsDragging(false)
-    setUploadResult(null)
+    setExcelSheets([])
+    setSelectedSheet('')
+    setSelectedStation('')
+    setCourseName('')
+    setCourseTiming('')
+    setNumberOfBatches(1)
+    setMembersPerClass(0)
+    setTotalMembers(0)
+    setSelectedMonths([])
+    setSelectedYear(new Date().getFullYear())
+    setIsUploading(false)
     setUploadProgress(0)
-    setShowPreview(false)
-    setPreviewData(null)
+    setValidationError('')
+  }
+
+  const handleClose = () => {
+    handleReset()
     onClose()
+  }
+
+  const handleBack = () => {
+    if (currentStep === 'sheet') {
+      setCurrentStep('upload')
+    } else if (currentStep === 'station') {
+      if (excelSheets.length > 1) {
+        setCurrentStep('sheet')
+      } else {
+        setCurrentStep('upload')
+      }
+    } else if (currentStep === 'config') {
+      setCurrentStep('station')
+    }
   }
 
   if (!isOpen) return null
@@ -275,12 +336,19 @@ export default function ExcelUploadModal({ isOpen, onClose }: ExcelUploadModalPr
             </div>
             <div>
               <h2 className="text-xl font-bold text-gray-900">Upload Excel File</h2>
-              <p className="text-sm text-gray-600">Import data from Excel spreadsheet</p>
+              <p className="text-sm text-gray-600">
+                {currentStep === 'upload' && 'Step 1: Upload Excel file'}
+                {currentStep === 'sheet' && 'Step 2: Select sheet'}
+                {currentStep === 'station' && 'Step 3: Select station'}
+                {currentStep === 'config' && 'Step 4: Configure course'}
+                {currentStep === 'uploading' && 'Uploading...'}
+              </p>
             </div>
           </div>
           <button
             onClick={handleClose}
             className="text-gray-400 hover:text-gray-600 transition-colors"
+            disabled={isUploading}
           >
             <X className="w-6 h-6" />
           </button>
@@ -288,191 +356,339 @@ export default function ExcelUploadModal({ isOpen, onClose }: ExcelUploadModalPr
 
         {/* Content */}
         <div className="p-6">
-          {/* Division Selection */}
-          <div className="mb-4">
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Select Division <span className="text-red-500">*</span>
-            </label>
-            <select
-              value={selectedDivision}
-              onChange={(e) => setSelectedDivision(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+          {/* Step 1: Upload File */}
+          {currentStep === 'upload' && (
+            <div
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              onClick={() => !selectedFile && fileInputRef.current?.click()}
+              className={`border-2 border-dashed rounded-lg p-12 text-center cursor-pointer transition-colors ${
+                isDragging
+                  ? 'border-primary-500 bg-primary-50'
+                  : selectedFile
+                  ? 'border-green-500 bg-green-50'
+                  : 'border-gray-300 hover:border-primary-400 hover:bg-gray-50'
+              }`}
             >
-              <option value="">Choose a division...</option>
-              {divisions.map((division) => (
-                <option key={division.id} value={division.id}>
-                  {division.name} ({division.code})
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Upload Area */}
-          <div
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
-            onDrop={handleDrop}
-            onClick={() => fileInputRef.current?.click()}
-            className={`border-2 border-dashed rounded-lg p-12 text-center cursor-pointer transition-colors ${
-              isDragging
-                ? 'border-primary-500 bg-primary-50'
-                : selectedFile
-                ? 'border-green-500 bg-green-50'
-                : 'border-gray-300 hover:border-primary-400 hover:bg-gray-50'
-            }`}
-          >
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".xlsx,.xls"
-              onChange={handleFileInputChange}
-              className="hidden"
-            />
-            <div className="flex flex-col items-center">
-              {selectedFile ? (
-                <>
-                  <div className="w-16 h-16 bg-green-100 rounded-lg flex items-center justify-center mb-4">
-                    <CheckCircle className="w-8 h-8 text-green-600" />
-                  </div>
-                  <p className="text-gray-700 font-medium mb-1">
-                    {selectedFile.name}
-                  </p>
-                  <p className="text-sm text-gray-500">
-                    {(selectedFile.size / 1024).toFixed(2)} KB
-                  </p>
-                </>
-              ) : (
-                <>
-                  <div className="w-16 h-16 bg-gray-100 rounded-lg flex items-center justify-center mb-4">
-                    <UploadIcon className="w-8 h-8 text-gray-400" />
-                  </div>
-                  <p className="text-gray-700 font-medium mb-1">
-                    Click to upload or drag and drop
-                  </p>
-                  <p className="text-sm text-gray-500">
-                    Excel files (.xlsx, .xls) up to 10MB
-                  </p>
-                </>
-              )}
-            </div>
-          </div>
-
-          {/* File Info */}
-          {selectedFile && !isUploaded && (
-            <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-              <p className="text-sm text-blue-800">
-                <strong>File selected:</strong> {selectedFile.name}
-              </p>
-              <p className="text-xs text-blue-600 mt-1">
-                Size: {(selectedFile.size / 1024).toFixed(2)} KB
-              </p>
-            </div>
-          )}
-
-          {/* Upload Progress */}
-          {isUploading && uploadProgress > 0 && (
-            <div className="mt-4">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm text-gray-700">Uploading...</span>
-                <span className="text-sm text-gray-600">{uploadProgress}%</span>
-              </div>
-              <div className="w-full bg-gray-200 rounded-full h-2">
-                <div
-                  className="bg-primary-500 h-2 rounded-full transition-all duration-300"
-                  style={{ width: `${uploadProgress}%` }}
-                ></div>
-              </div>
-            </div>
-          )}
-
-          {/* Preview Data */}
-          {showPreview && previewData && (
-            <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-              <p className="text-sm text-blue-800 font-medium mb-2">
-                📊 Data Preview
-              </p>
-              <div className="text-xs text-blue-700 space-y-1">
-                <p><strong>Total Rows:</strong> {previewData.summary?.totalRows || previewData.totalMembers}</p>
-                <p><strong>Valid Members:</strong> {previewData.totalMembers}</p>
-                <p><strong>Stations:</strong> {previewData.stationsCount}</p>
-                {previewData.summary?.errorRows > 0 && (
-                  <p className="text-red-600"><strong>Errors:</strong> {previewData.summary.errorRows}</p>
-                )}
-                {previewData.summary?.warningRows > 0 && (
-                  <p className="text-yellow-600"><strong>Warnings:</strong> {previewData.summary.warningRows}</p>
-                )}
-              </div>
-              <button
-                onClick={() => setShowPreview(false)}
-                className="mt-2 text-xs text-blue-600 hover:text-blue-800 underline"
-              >
-                Hide Preview
-              </button>
-            </div>
-          )}
-
-          {/* Success Message */}
-          {isUploaded && uploadResult && (
-            <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg">
-              <p className="text-sm text-green-800 font-medium mb-2">
-                ✓ File uploaded successfully!
-              </p>
-              <div className="text-xs text-green-700 space-y-1">
-                <p><strong>Total Members:</strong> {uploadResult.totalMembers}</p>
-                <p><strong>Stations:</strong> {uploadResult.stationsCount}</p>
-                <p><strong>Division:</strong> {uploadResult.divisionName}</p>
-                {uploadResult.summary && (
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".xlsx,.xls"
+                onChange={handleFileInputChange}
+                className="hidden"
+              />
+              <div className="flex flex-col items-center">
+                {selectedFile ? (
                   <>
-                    {uploadResult.summary.errorRows > 0 && (
-                      <p className="text-red-600"><strong>Errors:</strong> {uploadResult.summary.errorRows} rows</p>
-                    )}
-                    {uploadResult.summary.warningRows > 0 && (
-                      <p className="text-yellow-600"><strong>Warnings:</strong> {uploadResult.summary.warningRows} rows</p>
-                    )}
+                    <div className="w-16 h-16 bg-green-100 rounded-lg flex items-center justify-center mb-4">
+                      <CheckCircle className="w-8 h-8 text-green-600" />
+                    </div>
+                    <p className="text-gray-700 font-medium mb-1">{selectedFile.name}</p>
+                    <p className="text-sm text-gray-500">{(selectedFile.size / 1024).toFixed(2)} KB</p>
+                  </>
+                ) : (
+                  <>
+                    <div className="w-16 h-16 bg-gray-100 rounded-lg flex items-center justify-center mb-4">
+                      <UploadIcon className="w-8 h-8 text-gray-400" />
+                    </div>
+                    <p className="text-gray-700 font-medium mb-1">Click to upload or drag and drop</p>
+                    <p className="text-sm text-gray-500">Excel files (.xlsx, .xls) up to 10MB</p>
                   </>
                 )}
+              </div>
+            </div>
+          )}
+
+          {/* Step 2: Select Sheet */}
+          {currentStep === 'sheet' && (
+            <div>
+              <p className="text-sm text-gray-600 mb-4">
+                This Excel file contains {excelSheets.length} sheet(s). Please select which sheet to upload:
+              </p>
+              <div className="space-y-2">
+                {excelSheets.map((sheetName) => (
+                  <button
+                    key={sheetName}
+                    onClick={() => handleSheetSelect(sheetName)}
+                    className={`w-full p-4 border-2 rounded-lg text-left transition-colors ${
+                      selectedSheet === sheetName
+                        ? 'border-primary-500 bg-primary-50'
+                        : 'border-gray-200 hover:border-primary-300 hover:bg-gray-50'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium text-gray-900">{sheetName}</span>
+                      {selectedSheet === sheetName && (
+                        <CheckCircle className="w-5 h-5 text-primary-600" />
+                      )}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Step 3: Select Station */}
+          {currentStep === 'station' && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Select Station <span className="text-red-500">*</span>
+              </label>
+              <select
+                value={selectedStation}
+                onChange={(e) => setSelectedStation(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+              >
+                <option value="">Choose a station...</option>
+                {stations.map((station) => (
+                  <option key={station.id} value={station.id}>
+                    {station.name} ({station.code})
+                  </option>
+                ))}
+              </select>
+              {totalMembers > 0 && (
+                <p className="mt-2 text-sm text-gray-600">
+                  Total members in selected sheet: <strong>{totalMembers}</strong>
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Step 4: Configure Course */}
+          {currentStep === 'config' && (
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Course Name <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={courseName}
+                  onChange={(e) => setCourseName(e.target.value)}
+                  placeholder="Enter course name"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Course Timing <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={courseTiming}
+                  onChange={(e) => setCourseTiming(e.target.value)}
+                  placeholder="e.g., 9:00 AM - 5:00 PM"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Number of Batches <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  value={numberOfBatches}
+                  onChange={(e) => handleBatchesChange(parseInt(e.target.value) || 1)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Members per Class <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  value={membersPerClass || ''}
+                  onChange={(e) => handleMembersPerClassChange(parseInt(e.target.value) || 0)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                />
+                {totalMembers > 0 && (
+                  <p className="mt-1 text-xs text-gray-500">
+                    Total members: {totalMembers} | Total capacity: {numberOfBatches * membersPerClass || 0}
+                  </p>
+                )}
+              </div>
+
+              {/* Batch Year Selection */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Batch Year <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={selectedYear}
+                  onChange={(e) => setSelectedYear(parseInt(e.target.value))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                >
+                  {years.map((year) => (
+                    <option key={year} value={year}>
+                      {year}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Batch Months Selection */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Batch Months <span className="text-red-500">*</span>
+                </label>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                  {monthPairs.map((pair) => {
+                    const isSelected = pair.months.every(month => selectedMonths.includes(month))
+                    return (
+                      <button
+                        key={pair.label}
+                        type="button"
+                        onClick={() => {
+                          if (isSelected) {
+                            // Deselect: remove both months
+                            setSelectedMonths(prev => 
+                              prev.filter(m => !pair.months.includes(m))
+                            )
+                          } else {
+                            // Select: add both months if not already selected
+                            setSelectedMonths(prev => {
+                              const newMonths = [...prev]
+                              pair.months.forEach(month => {
+                                if (!newMonths.includes(month)) {
+                                  newMonths.push(month)
+                                }
+                              })
+                              return newMonths.sort((a, b) => 
+                                months.indexOf(a) - months.indexOf(b)
+                              )
+                            })
+                          }
+                        }}
+                        className={`p-3 border-2 rounded-lg text-left transition-colors ${
+                          isSelected
+                            ? 'border-primary-500 bg-primary-50 text-primary-900'
+                            : 'border-gray-200 hover:border-primary-300 hover:bg-gray-50'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm font-medium">{pair.label}</span>
+                          {isSelected && (
+                            <div className="w-5 h-5 bg-primary-500 rounded-full flex items-center justify-center">
+                              <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                              </svg>
+                            </div>
+                          )}
+                        </div>
+                      </button>
+                    )
+                  })}
+                </div>
+                {selectedMonths.length > 0 && (
+                  <p className="mt-2 text-xs text-gray-600">
+                    Selected: {selectedMonths.map(m => m.substring(0, 3)).join(', ')}
+                  </p>
+                )}
+              </div>
+
+              {/* Validation Error/Warning */}
+              {validationError && (
+                <div className={`p-3 rounded-lg flex items-start gap-2 ${
+                  validationError.includes('Warning') ? 'bg-yellow-50 border border-yellow-200' : 'bg-red-50 border border-red-200'
+                }`}>
+                  <AlertCircle className={`w-5 h-5 mt-0.5 ${
+                    validationError.includes('Warning') ? 'text-yellow-600' : 'text-red-600'
+                  }`} />
+                  <p className={`text-sm ${
+                    validationError.includes('Warning') ? 'text-yellow-800' : 'text-red-800'
+                  }`}>
+                    {validationError}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Step 5: Uploading */}
+          {currentStep === 'uploading' && (
+            <div className="text-center py-8">
+              <div className="w-16 h-16 border-4 border-primary-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+              <p className="text-gray-700 font-medium">Uploading and processing...</p>
+              <div className="mt-4">
+                <div className="w-full bg-gray-200 rounded-full h-2">
+                  <div
+                    className="bg-primary-500 h-2 rounded-full transition-all duration-300"
+                    style={{ width: `${uploadProgress}%` }}
+                  ></div>
+                </div>
+                <p className="text-sm text-gray-600 mt-2">{uploadProgress}%</p>
               </div>
             </div>
           )}
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end gap-3 p-6 border-t border-gray-200">
+        <div className="flex items-center justify-between p-6 border-t border-gray-200">
           <button
-            onClick={handleClose}
-            className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
+            onClick={handleBack}
+            disabled={currentStep === 'upload' || currentStep === 'uploading'}
+            className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium flex items-center gap-2"
           >
-            Cancel
+            <ArrowLeft className="w-4 h-4" />
+            Back
           </button>
-          {!showPreview && (
+          
+          <div className="flex gap-3">
             <button
-              onClick={handlePreview}
-              disabled={!selectedFile || !selectedDivision || isUploading || isUploaded}
-              className="px-4 py-2 border border-primary-500 text-primary-600 rounded-lg hover:bg-primary-50 disabled:border-gray-300 disabled:text-gray-400 disabled:cursor-not-allowed transition-colors font-medium"
+              onClick={handleClose}
+              className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
+              disabled={isUploading}
             >
-              Preview Data
+              Cancel
             </button>
-          )}
-          <button
-            onClick={handleUpload}
-            disabled={!selectedFile || !selectedDivision || isUploading || isUploaded}
-            className="px-4 py-2 bg-primary-500 hover:bg-primary-600 disabled:bg-primary-300 disabled:cursor-not-allowed text-white rounded-lg transition-colors font-medium flex items-center gap-2"
-          >
-            {isUploading ? (
-              <>
-                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                {showPreview ? 'Previewing...' : 'Uploading...'}
-              </>
-            ) : (
-              <>
-                <UploadIcon className="w-4 h-4" />
-                {showPreview ? 'Confirm & Upload' : 'Upload File'}
-              </>
+            
+            {currentStep === 'upload' && selectedFile && (
+              <button
+                onClick={() => {
+                  if (excelSheets.length > 1) {
+                    setCurrentStep('sheet')
+                  } else {
+                    setCurrentStep('station')
+                  }
+                }}
+                className="px-4 py-2 bg-primary-500 hover:bg-primary-600 text-white rounded-lg transition-colors font-medium flex items-center gap-2"
+              >
+                Next
+                <ArrowRight className="w-4 h-4" />
+              </button>
             )}
-          </button>
+            
+            {currentStep === 'station' && (
+              <button
+                onClick={handleNextFromStation}
+                disabled={!selectedStation}
+                className="px-4 py-2 bg-primary-500 hover:bg-primary-600 disabled:bg-primary-300 disabled:cursor-not-allowed text-white rounded-lg transition-colors font-medium flex items-center gap-2"
+              >
+                Next
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            )}
+            
+            {currentStep === 'config' && (
+              <button
+                onClick={handleUpload}
+                disabled={!courseName || !courseTiming || membersPerClass <= 0 || selectedMonths.length === 0 || !!validationError}
+                className="px-4 py-2 bg-primary-500 hover:bg-primary-600 disabled:bg-primary-300 disabled:cursor-not-allowed text-white rounded-lg transition-colors font-medium flex items-center gap-2"
+              >
+                <UploadIcon className="w-4 h-4" />
+                Upload
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </div>
   )
 }
-
