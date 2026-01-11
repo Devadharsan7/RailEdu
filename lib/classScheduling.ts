@@ -413,7 +413,7 @@ async function createScheduleAlerts(schedule: ScheduleData): Promise<void> {
   const mainMessage = `Your classes have been scheduled!\n\nDate: ${formatDate(schedule.scheduledDate)}\nStart Time: ${formatTime(schedule.startTime)}\nEnd Time: ${formatTime(schedule.endTime)}\n\nClasses:\n${classList}\n\nPlease complete all classes in this session before returning to your station work.`
 
   // Create one main alert for the entire schedule
-  const mainAlert: Omit<IAlertNotification, '_id'> = {
+  const mainAlert: any = {
     crewCourseId: schedule.classes[0].crewCourseId, // Use first class as reference
     batchAssignmentId: schedule.classes[0].batchAssignmentId,
     memberName: schedule.crewName,
@@ -432,7 +432,7 @@ async function createScheduleAlerts(schedule: ScheduleData): Promise<void> {
   await AlertNotification.create(mainAlert)
 
   // Also create individual alerts for each class (optional - for detailed tracking)
-  const individualAlerts: Array<Omit<IAlertNotification, '_id'>> = schedule.classes.map((classItem) => {
+  const individualAlerts: any[] = schedule.classes.map((classItem) => {
     const classStart = new Date(schedule.startTime)
     const classIndex = schedule.classes.findIndex(c => c.crewCourseId === classItem.crewCourseId)
     classStart.setMinutes(classStart.getMinutes() + classIndex * (classItem.duration + 15))

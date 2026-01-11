@@ -1,7 +1,11 @@
 // Minimal storage implementation for compatibility
 export interface Batch {
   id: string;
-  name: string;
+  name?: string; // Optional for backward compatibility
+  course?: string; // Course name
+  classesPerBatch?: number;
+  crewLimitPerClass?: number;
+  months?: string[];
   createdAt: string;
 }
 

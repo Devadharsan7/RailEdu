@@ -99,7 +99,7 @@ export class ClassSchedulerAlgorithm {
   private isTimeSlotAvailable(stationId: string, startTime: Date, duration: number): boolean {
     const endTime = new Date(startTime.getTime() + duration * 60000);
     
-    for (const session of this.sessions.values()) {
+    for (const session of Array.from(this.sessions.values())) {
       if (session.stationId === stationId && session.status !== 'cancelled') {
         const sessionStart = session.scheduledTime;
         const sessionEnd = new Date(sessionStart.getTime() + duration * 60000);
@@ -153,7 +153,7 @@ export class ClassSchedulerAlgorithm {
     const now = new Date();
     const reminderThreshold = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
     
-    for (const user of this.users.values()) {
+    for (const user of Array.from(this.users.values())) {
       for (const classId of user.assignedClasses) {
         if (user.completedClasses.includes(classId)) continue;
         

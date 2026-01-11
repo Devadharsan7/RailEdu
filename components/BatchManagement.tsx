@@ -104,7 +104,7 @@ export default function BatchManagement() {
           setBatches(batchStorage.getAll())
           setNewBatch({ course: '', classesPerBatch: 6, crewLimitPerClass: 30, months: [] })
           setIsAdding(false)
-          success(`Batch created successfully for ${batch.course}. It will appear in the Courses page.`)
+          success(`Batch created successfully for ${batch.course || batch.name || 'course'}. It will appear in the Courses page.`)
         } else {
           throw new Error(result.error || 'Failed to save batch to database')
         }
@@ -172,7 +172,7 @@ export default function BatchManagement() {
 
   const handleDelete = async (id: string) => {
     const batch = batchStorage.getById(id)
-    if (batch && confirm(`Are you sure you want to delete batch for ${batch.course}?`)) {
+    if (batch && confirm(`Are you sure you want to delete batch for ${batch.course || batch.name || 'this course'}?`)) {
       try {
         // Delete placeholder batch assignments from MongoDB
         const response = await fetch('/api/batch-configs', {
@@ -181,7 +181,7 @@ export default function BatchManagement() {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            courseName: batch.course,
+            courseName: batch.course || batch.name || '',
             batchYear: new Date().getFullYear(),
           }),
         })
@@ -356,21 +356,21 @@ export default function BatchManagement() {
                   <div className="flex-1 min-w-[200px]">
                     <div className="flex items-center gap-2 mb-1">
                       <BookOpen className="w-4 h-4 text-primary-600" />
-                      <h4 className="font-semibold text-gray-900">{batch.course}</h4>
+                      <h4 className="font-semibold text-gray-900">{batch.course || batch.name || 'N/A'}</h4>
                     </div>
                     <p className="text-xs text-gray-500">Batch ID: {batch.id}</p>
                   </div>
                   <div className="flex items-center gap-2 text-sm text-gray-600">
                     <BookOpen className="w-4 h-4" />
-                    <span>{batch.classesPerBatch} Classes</span>
+                    <span>{batch.classesPerBatch || 0} Classes</span>
                   </div>
                   <div className="flex items-center gap-2 text-sm text-gray-600">
                     <Users className="w-4 h-4" />
-                    <span>{batch.crewLimitPerClass} Members/Class</span>
+                    <span>{batch.crewLimitPerClass || 0} Members/Class</span>
                   </div>
                   <div className="flex items-center gap-2 text-sm text-gray-600">
                     <Calendar className="w-4 h-4" />
-                    <span>{batch.months.join(', ')}</span>
+                    <span>{batch.months?.join(', ') || 'No months selected'}</span>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
@@ -419,10 +419,10 @@ interface EditBatchFormProps {
 
 function EditBatchForm({ batch, onSave, onCancel }: EditBatchFormProps) {
   const [editedBatch, setEditedBatch] = useState({
-    course: batch.course,
-    classesPerBatch: batch.classesPerBatch,
-    crewLimitPerClass: batch.crewLimitPerClass,
-    months: [...batch.months],
+    course: batch.course || batch.name || '',
+    classesPerBatch: batch.classesPerBatch || 6,
+    crewLimitPerClass: batch.crewLimitPerClass || 30,
+    months: [...(batch.months || [])],
   })
 
   const toggleMonth = (month: string) => {

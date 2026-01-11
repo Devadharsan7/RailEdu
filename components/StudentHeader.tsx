@@ -65,7 +65,12 @@ export default function StudentHeader() {
           </div>
         </div>
       </header>
-      <NotificationsPanel isOpen={isNotificationsOpen} onClose={() => setIsNotificationsOpen(false)} />
+      <NotificationsPanel 
+        isOpen={isNotificationsOpen} 
+        onClose={() => setIsNotificationsOpen(false)}
+        userId={user?.id || ''}
+        userType={user?.userType || 'crew'}
+      />
     </>
   )
 }

@@ -177,7 +177,7 @@ export default function UserCoursesPage({ userId }: UserCoursesPageProps) {
                 </div>
               )}
               
-              {course.status === 'in-progress' && (
+              {(course.status === 'pending' || course.status === undefined) && (
                 <div className="mt-4 pt-4 border-t">
                   <button 
                     onClick={() => completeCourse(course._id)}

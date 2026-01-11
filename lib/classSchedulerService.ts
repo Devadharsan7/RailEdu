@@ -141,13 +141,13 @@ export class ClassSchedulerService {
     if (success) {
       // Update database
       await this.collections.users.updateOne(
-        { _id: userId },
+        { userId: userId },
         { $addToSet: { assignedClasses: classId } }
       );
 
       // Update batch participant count
       await this.collections.classes.updateOne(
-        { _id: classId },
+        { classId: classId },
         { $inc: { 'batchDetails.currentParticipants': 1 } }
       );
     }
@@ -175,12 +175,12 @@ export class ClassSchedulerService {
     
     if (success) {
       await this.collections.users.updateOne(
-        { _id: userId },
+        { _id: userId } as any,
         { $set: { currentlyInClass: true } }
       );
 
       await this.collections.sessions.updateOne(
-        { _id: sessionId },
+        { _id: sessionId } as any,
         { $set: { status: 'in-progress', startedAt: new Date() } }
       );
     }
@@ -194,18 +194,20 @@ export class ClassSchedulerService {
     const success = this.scheduler.completeClassSession(userId, sessionId);
     
     if (success) {
-      const session = await this.collections.sessions.findOne({ _id: sessionId });
+      const session = await this.collections.sessions.findOne({ _id: sessionId } as any);
       
-      await this.collections.users.updateOne(
-        { _id: userId },
-        { 
-          $addToSet: { completedClasses: session.classId },
-          $set: { currentlyInClass: false }
-        }
-      );
+      if (session) {
+        await this.collections.users.updateOne(
+          { _id: userId } as any,
+          { 
+            $addToSet: { completedClasses: session.classId },
+            $set: { currentlyInClass: false }
+          }
+        );
+      }
 
       await this.collections.sessions.updateOne(
-        { _id: sessionId },
+        { _id: sessionId } as any,
         { $set: { status: 'completed', completedAt: new Date() } }
       );
     }
@@ -220,7 +222,7 @@ export class ClassSchedulerService {
     // Save new alerts to database
     for (const alert of alerts) {
       await this.collections?.alerts.updateOne(
-        { _id: alert.id },
+        { _id: alert.id } as any,
         { $set: alert },
         { upsert: true }
       );
@@ -230,12 +232,12 @@ export class ClassSchedulerService {
   }
 
   async getPendingAdminAlerts(adminId: string): Promise<any[]> {
-    const alerts = this.scheduler.getPendingAdminAlerts(adminId);
+    const alerts = this.scheduler.getPendingAlerts(adminId);
     
     // Save new alerts to database
     for (const alert of alerts) {
       await this.collections?.alerts.updateOne(
-        { _id: alert.id },
+        { _id: alert.id } as any,
         { $set: alert },
         { upsert: true }
       );
@@ -250,7 +252,7 @@ export class ClassSchedulerService {
     this.scheduler.markAlertAsSent(alertId);
     
     await this.collections.alerts.updateOne(
-      { _id: alertId },
+      { _id: alertId } as any,
       { $set: { sent: true, sentAt: new Date() } }
     );
   }
@@ -284,9 +286,10 @@ export class ClassSchedulerService {
     
     // Count overdue classes
     const now = new Date();
+    const completedClassIds = await this.getCompletedClassIds();
     const overdueClasses = await this.collections.classes.countDocuments({
       dueDate: { $lt: now },
-      _id: { $nin: await this.getCompletedClassIds() }
+      _id: { $nin: completedClassIds } as any
     });
 
     return {
@@ -335,7 +338,7 @@ export class ClassSchedulerService {
         
         // Mark as processed
         await this.collections.classes.updateOne(
-          { _id: classData._id },
+          { _id: classData._id } as any,
           { $set: { assignmentProcessed: true } }
         );
       }
