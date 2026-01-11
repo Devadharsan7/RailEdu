@@ -280,11 +280,8 @@ export default function UsersPage() {
                           <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider border-r border-gray-200">
                             CLASS TIME FROM
                           </th>
-                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider border-r border-gray-200">
-                            CLASS TIME TO
-                          </th>
                           <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                            DURATION
+                            CLASS TIME TO
                           </th>
                         </tr>
                       </thead>
@@ -329,11 +326,8 @@ export default function UsersPage() {
                             <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 border-r border-gray-200">
                               {formatDateTime(course.classTimeFrom)}
                             </td>
-                            <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 border-r border-gray-200">
-                              {formatDateTime(course.classTimeTo)}
-                            </td>
                             <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
-                              {formatDuration(course.duration)}
+                              {formatDateTime(course.classTimeTo)}
                             </td>
                           </tr>
                         ))}
