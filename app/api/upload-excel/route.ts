@@ -15,9 +15,62 @@ interface ExcelRow {
 }
 
 /**
+ * Parse date string in various formats (DD-MM-YYYY, DD/MM/YYYY, YYYY-MM-DD, etc.)
+ * @param dateString - Date string to parse
+ * @returns Parsed Date object or null if invalid
+ */
+function parseDateString(dateString: string): Date | null {
+  if (!dateString || typeof dateString !== 'string') {
+    return null
+  }
+
+  const trimmed = dateString.trim()
+  if (!trimmed) return null
+
+  // Try standard Date parsing first (works for ISO format and some others)
+  const standardParse = new Date(trimmed)
+  if (!isNaN(standardParse.getTime()) && standardParse.getFullYear() >= 1900 && standardParse.getFullYear() <= 2100) {
+    return standardParse
+  }
+
+  // Try DD-MM-YYYY or DD/MM/YYYY format
+  const ddmmyyyyPattern = /^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/
+  const match = trimmed.match(ddmmyyyyPattern)
+  if (match) {
+    const day = parseInt(match[1], 10)
+    const month = parseInt(match[2], 10) - 1 // JavaScript months are 0-indexed
+    const year = parseInt(match[3], 10)
+    if (day >= 1 && day <= 31 && month >= 0 && month <= 11 && year >= 1900 && year <= 2100) {
+      const date = new Date(year, month, day)
+      // Verify the date is valid (e.g., not 31 Feb)
+      if (date.getFullYear() === year && date.getMonth() === month && date.getDate() === day) {
+        return date
+      }
+    }
+  }
+
+  // Try YYYY-MM-DD format
+  const yyyymmddPattern = /^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/
+  const yyyyMatch = trimmed.match(yyyymmddPattern)
+  if (yyyyMatch) {
+    const year = parseInt(yyyyMatch[1], 10)
+    const month = parseInt(yyyyMatch[2], 10) - 1
+    const day = parseInt(yyyyMatch[3], 10)
+    if (day >= 1 && day <= 31 && month >= 0 && month <= 11 && year >= 1900 && year <= 2100) {
+      const date = new Date(year, month, day)
+      if (date.getFullYear() === year && date.getMonth() === month && date.getDate() === day) {
+        return date
+      }
+    }
+  }
+
+  return null
+}
+
+/**
  * Calculate and assign time windows for batch assignments
  * This calculates assignedTimeFrom and assignedTimeTo based on:
- * - The closest due date from the CrewCourse
+ * - The closest (earliest) due date in each batch/class combination
  * - A buffer period before the due date (to ensure completion before deadline)
  * - A duration for the class session
  * 
@@ -86,7 +139,6 @@ async function calculateAndAssignTimeWindows(
 
     // Create a map for quick lookup: crewCourseId -> dueDate
     const dueDateMap = new Map<string, Date>()
-    const crewCourseMap = new Map<string, typeof crewCourses[0]>()
     crewCourses.forEach(cc => {
       if (!cc || !cc._id || !cc.test || !cc.test.dueDate) {
         console.warn('Invalid CrewCourse structure:', cc)
@@ -100,14 +152,40 @@ async function calculateAndAssignTimeWindows(
           return
         }
         dueDateMap.set(id, dueDate)
-        crewCourseMap.set(id, cc)
       } catch (error) {
         console.warn(`Error processing CrewCourse ${id}:`, error)
       }
     })
 
-    // Calculate assigned time windows for each batch assignment
-    // Each assignment uses its own CrewCourse's due date as the "closest due date" reference
+    // Group batch assignments by course name, batch number, and class number
+    // Find the earliest (closest) due date in each group
+    const batchClassGroups = new Map<string, {
+      assignments: any[]
+      earliestDueDate: Date | null
+    }>()
+
+    for (const assignment of batchAssignments) {
+      const groupKey = `${assignment.course.name}-${assignment.batchNumber}-${assignment.classNumber}`
+      if (!batchClassGroups.has(groupKey)) {
+        batchClassGroups.set(groupKey, {
+          assignments: [],
+          earliestDueDate: null,
+        })
+      }
+      const group = batchClassGroups.get(groupKey)!
+      group.assignments.push(assignment)
+      
+      // Find earliest due date for this group
+      const dueDate = dueDateMap.get(assignment.crewCourseId)
+      if (dueDate) {
+        if (!group.earliestDueDate || dueDate < group.earliestDueDate) {
+          group.earliestDueDate = dueDate
+        }
+      }
+    }
+
+    // Calculate assigned time windows for each batch assignment group
+    // All assignments in the same batch/class use the same time window based on the earliest due date
     const updates: Array<{
       updateOne: {
         filter: { _id: any }
@@ -115,23 +193,15 @@ async function calculateAndAssignTimeWindows(
       }
     }> = []
 
-    for (const assignment of batchAssignments) {
-      const crewCourse = crewCourseMap.get(assignment.crewCourseId)
-      if (!crewCourse) {
-        console.warn(`CrewCourse not found for assignment: ${assignment.crewCourseId}`)
+    for (const [groupKey, group] of Array.from(batchClassGroups.entries())) {
+      if (!group.earliestDueDate) {
+        console.warn(`No due date found for batch/class group: ${groupKey}`)
         continue
       }
 
-      // Get the due date for this specific CrewCourse (the "closest due date" for this assignment)
-      const closestDueDate = dueDateMap.get(assignment.crewCourseId)
-      if (!closestDueDate) {
-        console.warn(`No due date found for CrewCourse: ${assignment.crewCourseId}`)
-        continue
-      }
-
-      // Calculate assignedTimeFrom: dueDate - bufferDaysBeforeDue
-      // This ensures the class is completed before the due date
-      const assignedTimeFrom = new Date(closestDueDate)
+      // Calculate assignedTimeFrom: earliestDueDate - bufferDaysBeforeDue
+      // This ensures the class is completed before the earliest due date
+      const assignedTimeFrom = new Date(group.earliestDueDate)
       assignedTimeFrom.setDate(assignedTimeFrom.getDate() - bufferDaysBeforeDue)
       assignedTimeFrom.setHours(9, 0, 0, 0) // Default to 9:00 AM start time
 
@@ -139,17 +209,20 @@ async function calculateAndAssignTimeWindows(
       const assignedTimeTo = new Date(assignedTimeFrom)
       assignedTimeTo.setMinutes(assignedTimeTo.getMinutes() + durationMinutes)
 
-      updates.push({
-        updateOne: {
-          filter: { _id: assignment._id },
-          update: {
-            $set: {
-              assignedTimeFrom,
-              assignedTimeTo,
+      // Apply the same time window to all assignments in this batch/class group
+      for (const assignment of group.assignments) {
+        updates.push({
+          updateOne: {
+            filter: { _id: assignment._id },
+            update: {
+              $set: {
+                assignedTimeFrom,
+                assignedTimeTo,
+              },
             },
           },
-        },
-      })
+        })
+      }
     }
 
     // Bulk update all batch assignments
@@ -457,13 +530,19 @@ export async function POST(request: NextRequest) {
             warnings.push({ row: rowNumber, message: 'Invalid date format, using today' })
           }
         } else if (typeof dateValue === 'string') {
-          // Try to parse string date
-          const parsed = new Date(dateValue)
-          if (!isNaN(parsed.getTime()) && parsed.getFullYear() >= 1900 && parsed.getFullYear() <= 2100) {
+          // Try to parse string date using improved parser
+          const parsed = parseDateString(dateValue)
+          if (parsed) {
             dueDate = parsed
           } else {
-            dueDate = new Date()
-            warnings.push({ row: rowNumber, message: 'Invalid date string, using today' })
+            // If parseDateString fails, try standard Date parsing as fallback
+            const standardParse = new Date(dateValue)
+            if (!isNaN(standardParse.getTime()) && standardParse.getFullYear() >= 1900 && standardParse.getFullYear() <= 2100) {
+              dueDate = standardParse
+            } else {
+              dueDate = new Date()
+              warnings.push({ row: rowNumber, message: 'Invalid date string, using today' })
+            }
           }
         } else {
           dueDate = new Date()
@@ -589,47 +668,84 @@ export async function POST(request: NextRequest) {
     const hasDuplicates = duplicateSignatures.length > 0
 
     // Automatically assign batches and classes after upload (only if new content was added)
-    let batchAssignmentResult = null
+    // Group by TEST CODE and assign batches for each TEST CODE
+    const batchAssignmentResults: any[] = []
+    let totalAssigned = 0
+    
     if (hasNewContent) {
       try {
-        // For batch assignment, use all crew courses with this excelId (including newly inserted ones)
-        // We'll use the excelId that was created/used
-        batchAssignmentResult = await assignBatchesAndClasses({
-          excelId,
-          station: {
-            id: stationId,
-            name: stationName,
-            code: stationCode,
-          },
-          course: {
-            name: finalCourseName,
-            timing: finalCourseTiming,
-            numberOfBatches,
-            membersPerClass,
-            batchMonths: batchMonths ? JSON.parse(batchMonths) : [],
-            batchYear,
-          },
+        // Group crew courses by TEST CODE
+        const crewCoursesByTestCode = new Map<string, typeof newCrewCourses>()
+        
+        // First, fetch the inserted crew courses to get their IDs and test codes
+        const insertedCrewCourses = await CrewCourse.find({ excelId }).lean()
+        
+        // Group by TEST CODE
+        insertedCrewCourses.forEach((course: any) => {
+          const testCode = course.test?.testCode || 'UNKNOWN'
+          if (!crewCoursesByTestCode.has(testCode)) {
+            crewCoursesByTestCode.set(testCode, [])
+          }
+          // Store the course ID for batch assignment
+          crewCoursesByTestCode.get(testCode)!.push(course)
         })
-        console.log('Batch assignment completed:', batchAssignmentResult)
 
-        // Calculate and assign time windows for batch assignments (based on closest due date)
+        console.log(`Grouped crew courses into ${crewCoursesByTestCode.size} TEST CODE groups`)
+
+        // For each TEST CODE, assign batches and classes
+        // Use TEST CODE as the course name
+        for (const [testCode, coursesForTestCode] of Array.from(crewCoursesByTestCode.entries())) {
+          try {
+            const result = await assignBatchesAndClasses({
+              excelId,
+              testCode, // Filter by test code
+              station: {
+                id: stationId,
+                name: stationName,
+                code: stationCode,
+              },
+              course: {
+                name: testCode, // Use TEST CODE as course name
+                timing: finalCourseTiming,
+                numberOfBatches,
+                membersPerClass,
+                batchMonths: batchMonths ? JSON.parse(batchMonths) : [],
+                batchYear,
+              },
+            })
+
+            if (result.success) {
+              batchAssignmentResults.push({
+                testCode,
+                ...result,
+              })
+              totalAssigned += result.totalAssigned
+              console.log(`Batch assignment completed for TEST CODE ${testCode}:`, result)
+            }
+          } catch (testCodeError: any) {
+            console.error(`Error assigning batches for TEST CODE ${testCode}:`, testCodeError)
+            // Continue with other test codes even if one fails
+          }
+        }
+
+        // Calculate and assign time windows for all batch assignments (based on closest due date)
         // These variables control how assignedTimeFrom and assignedTimeTo are calculated
         // Can be easily modified for rescheduling functionality in the future
         const classDurationMinutes: number = 60 // Duration of each class session in minutes
         const bufferDaysBeforeDueDate: number = 7 // Number of days before due date to schedule the class (ensures completion before deadline)
         
-        if (batchAssignmentResult.success && batchAssignmentResult.totalAssigned > 0) {
-          try {
-            await calculateAndAssignTimeWindows(excelId, classDurationMinutes, bufferDaysBeforeDueDate)
-            console.log(`Assigned time windows calculated for batch assignments (duration: ${classDurationMinutes} minutes, buffer: ${bufferDaysBeforeDueDate} days before due date)`)
-          } catch (timeCalcError: any) {
-            console.error('Error calculating assigned time windows:', timeCalcError)
-            // Don't fail the upload if time calculation fails
-          }
+        // Calculate time windows for all batch assignments created in this upload
+        // All batch assignments use the same excelId, so we calculate for all at once
+        try {
+          await calculateAndAssignTimeWindows(excelId, classDurationMinutes, bufferDaysBeforeDueDate)
+          console.log(`Assigned time windows calculated for all batch assignments (duration: ${classDurationMinutes} minutes, buffer: ${bufferDaysBeforeDueDate} days before due date)`)
+        } catch (timeCalcError: any) {
+          console.error('Error calculating assigned time windows:', timeCalcError)
+          // Don't fail the upload if time calculation fails
         }
 
         // Automatically trigger class scheduling algorithm after batch assignment
-        if (batchAssignmentResult.success && batchAssignmentResult.totalAssigned > 0) {
+        if (totalAssigned > 0) {
           try {
             const { scheduleClassesForUsers } = await import('@/lib/classScheduling')
             const schedulingResult = await scheduleClassesForUsers()
@@ -649,6 +765,14 @@ export async function POST(request: NextRequest) {
         // Don't fail the upload if batch assignment fails
       }
     }
+    
+    // Create a combined batch assignment result
+    const batchAssignmentResult = batchAssignmentResults.length > 0 ? {
+      success: true,
+      totalAssigned,
+      batches: batchAssignmentResults.flatMap(r => r.batches || []),
+      testCodeResults: batchAssignmentResults,
+    } : null
 
     // Build response message based on content status
     let responseMessage = ''

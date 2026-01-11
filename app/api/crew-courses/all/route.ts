@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import connectDB from '@/lib/mongodb'
-import { CrewCourse } from '@/lib/models'
+import { CrewCourse, BatchAssignment } from '@/lib/models'
 
 // Mark route as dynamic
 export const dynamic = 'force-dynamic'
@@ -30,23 +30,89 @@ export async function GET(request: NextRequest) {
       .sort({ createdAt: -1 })
       .lean()
 
+    // Get all crew course IDs to fetch batch assignments
+    const crewCourseIds = crewCourses.map((course: any) => course._id.toString())
+    
+    // Fetch batch assignments for these crew courses
+    const batchAssignments = await BatchAssignment.find({
+      crewCourseId: { $in: crewCourseIds },
+    })
+      .sort({ assignedTimeFrom: 1 }) // Get the earliest assigned time if multiple exist
+      .lean()
+
+    // Create a map of crewCourseId -> batch assignment (taking the first/earliest one)
+    const batchAssignmentMap = new Map<string, any>()
+    batchAssignments.forEach((assignment: any) => {
+      const crewCourseId = assignment.crewCourseId
+      if (!batchAssignmentMap.has(crewCourseId)) {
+        batchAssignmentMap.set(crewCourseId, assignment)
+      } else {
+        // If multiple assignments exist, use the one with earliest assignedTimeFrom
+        const existing = batchAssignmentMap.get(crewCourseId)
+        if (assignment.assignedTimeFrom && existing.assignedTimeFrom) {
+          if (new Date(assignment.assignedTimeFrom) < new Date(existing.assignedTimeFrom)) {
+            batchAssignmentMap.set(crewCourseId, assignment)
+          }
+        } else if (assignment.assignedTimeFrom && !existing.assignedTimeFrom) {
+          batchAssignmentMap.set(crewCourseId, assignment)
+        }
+      }
+    })
+
     // Format data for table display
-    const formattedData = crewCourses.map((course: any, index: number) => ({
-      sno: index + 1,
-      crewId: `${course.division.code}${course.crew.crewId}`,
-      crewName: course.crew.crewName,
-      crewDesignation: course.designation.code,
-      dueDate: course.test.dueDate ? new Date(course.test.dueDate).toLocaleDateString('en-GB', {
-        day: '2-digit',
-        month: '2-digit',
-        year: 'numeric'
-      }).replace(/\//g, '-') : 'N/A',
-      testCode: course.test.testCode,
-      statusReason: course.status || 'ACTIVE',
-      station: course.division.code,
-      division: course.division.code,
-      _id: course._id,
-    }))
+    const formattedData = crewCourses.map((course: any, index: number) => {
+      const batchAssignment = batchAssignmentMap.get(course._id.toString())
+      let classTimeFrom: string | null = null
+      let classTimeTo: string | null = null
+      let duration: number | null = null
+
+      if (batchAssignment?.assignedTimeFrom && batchAssignment?.assignedTimeTo) {
+        const fromDate = new Date(batchAssignment.assignedTimeFrom)
+        const toDate = new Date(batchAssignment.assignedTimeTo)
+        
+        // Format dates consistently with dueDate format (DD-MM-YYYY HH:MM)
+        classTimeFrom = fromDate.toLocaleString('en-GB', {
+          day: '2-digit',
+          month: '2-digit',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false
+        }).replace(/\//g, '-')
+        
+        classTimeTo = toDate.toLocaleString('en-GB', {
+          day: '2-digit',
+          month: '2-digit',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false
+        }).replace(/\//g, '-')
+
+        // Calculate duration in minutes
+        duration = Math.round((toDate.getTime() - fromDate.getTime()) / (1000 * 60))
+      }
+
+      return {
+        sno: index + 1,
+        crewId: `${course.division.code}${course.crew.crewId}`,
+        crewName: course.crew.crewName,
+        crewDesignation: course.designation.code,
+        dueDate: course.test.dueDate ? new Date(course.test.dueDate).toLocaleDateString('en-GB', {
+          day: '2-digit',
+          month: '2-digit',
+          year: 'numeric'
+        }).replace(/\//g, '-') : 'N/A',
+        testCode: course.test.testCode,
+        statusReason: course.status || 'ACTIVE',
+        station: course.division.code,
+        division: course.division.code,
+        classTimeFrom,
+        classTimeTo,
+        duration,
+        _id: course._id,
+      }
+    })
 
     return NextResponse.json({
       success: true,

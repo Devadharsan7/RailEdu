@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import connectDB from '@/lib/mongodb'
-import { CrewCourse } from '@/lib/models'
+import { CrewCourse, BatchAssignment } from '@/lib/models'
 
 // Mark route as dynamic
 export const dynamic = 'force-dynamic'
@@ -38,6 +38,39 @@ export async function GET(request: NextRequest) {
       {
         success: false,
         error: 'Failed to fetch crew courses',
+        details: error.message,
+      },
+      { status: 500 }
+    )
+  }
+}
+
+// DELETE: Delete all crew courses (clears users page)
+export async function DELETE(request: NextRequest) {
+  try {
+    await connectDB()
+
+    // Delete all batch assignments first (since they reference crew courses)
+    const batchDeleteResult = await BatchAssignment.deleteMany({})
+    console.log(`Deleted ${batchDeleteResult.deletedCount} batch assignments`)
+
+    // Delete all crew courses
+    const deleteResult = await CrewCourse.deleteMany({})
+    console.log(`Deleted ${deleteResult.deletedCount} crew courses`)
+
+    return NextResponse.json({
+      success: true,
+      message: 'All crew courses deleted successfully',
+      deletedCount: deleteResult.deletedCount,
+      batchAssignmentsDeleted: batchDeleteResult.deletedCount,
+      note: 'All data from the users page has been cleared. This includes all crew courses and their related batch assignments.',
+    })
+  } catch (error: any) {
+    console.error('Error deleting crew courses:', error)
+    return NextResponse.json(
+      {
+        success: false,
+        error: 'Failed to delete crew courses',
         details: error.message,
       },
       { status: 500 }

@@ -15,6 +15,7 @@ interface BatchAssignmentConfig {
     batchMonths: string[]
     batchYear: number
   }
+  testCode?: string // Optional: filter crew courses by test code
 }
 
 interface MemberWithDueDate {
@@ -48,11 +49,15 @@ export async function assignBatchesAndClasses(config: BatchAssignmentConfig): Pr
   errors?: string[]
 }> {
   try {
-    const { excelId, station, course } = config
+    const { excelId, station, course, testCode } = config
     const { numberOfBatches, membersPerClass } = course
 
-    // Fetch all crew courses for this excelId
-    const crewCourses = await CrewCourse.find({ excelId }).lean()
+    // Fetch all crew courses for this excelId, optionally filtered by test code
+    const query: any = { excelId }
+    if (testCode) {
+      query['test.testCode'] = testCode
+    }
+    const crewCourses = await CrewCourse.find(query).lean()
     
     if (crewCourses.length === 0) {
       return {
@@ -86,8 +91,12 @@ export async function assignBatchesAndClasses(config: BatchAssignmentConfig): Pr
       )
     }
 
-    // Delete existing batch assignments for this excelId
-    await BatchAssignment.deleteMany({ excelId })
+    // Delete existing batch assignments for this excelId and course name (test code)
+    // Only delete assignments for the specific course, not all courses
+    await BatchAssignment.deleteMany({ 
+      excelId,
+      'course.name': course.name // Only delete assignments for this specific course (test code)
+    })
 
     // Assign members to batches and classes
     const batchAssignments: Array<{

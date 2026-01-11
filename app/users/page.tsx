@@ -17,6 +17,9 @@ interface CrewCourseData {
   statusReason: string
   station: string
   division: string
+  classTimeFrom: string | null
+  classTimeTo: string | null
+  duration: number | null
   _id: string
 }
 
@@ -123,14 +126,45 @@ export default function UsersPage() {
   const formatDate = (dateString: string) => {
     if (dateString === 'N/A') return dateString
     try {
+      // Check if date is already in DD-MM-YYYY format (from API)
+      // If so, just return it as-is since it's already formatted correctly
+      const ddmmyyyyPattern = /^(\d{2})-(\d{2})-(\d{4})$/
+      if (ddmmyyyyPattern.test(dateString)) {
+        return dateString
+      }
+      
+      // Otherwise, try to parse as Date object
       const date = new Date(dateString)
+      if (isNaN(date.getTime())) {
+        return dateString
+      }
       return date.toLocaleDateString('en-GB', {
         day: '2-digit',
         month: '2-digit',
         year: 'numeric'
-      })
+      }).replace(/\//g, '-')
     } catch {
       return dateString
+    }
+  }
+
+  const formatDateTime = (dateTimeString: string | null) => {
+    if (!dateTimeString || dateTimeString === 'N/A') return 'N/A'
+    // If already formatted from API, just return it
+    // The API already formats dates in DD-MM-YYYY HH:MM format
+    return dateTimeString
+  }
+
+  const formatDuration = (durationMinutes: number | null) => {
+    if (durationMinutes === null || durationMinutes === undefined) return 'N/A'
+    const hours = Math.floor(durationMinutes / 60)
+    const minutes = durationMinutes % 60
+    if (hours > 0 && minutes > 0) {
+      return `${hours}h ${minutes}m`
+    } else if (hours > 0) {
+      return `${hours}h`
+    } else {
+      return `${minutes}m`
     }
   }
 
@@ -240,8 +274,17 @@ export default function UsersPage() {
                           <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider border-r border-gray-200">
                             STATION
                           </th>
-                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider border-r border-gray-200">
                             DIVISION
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider border-r border-gray-200">
+                            CLASS TIME FROM
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider border-r border-gray-200">
+                            CLASS TIME TO
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                            DURATION
                           </th>
                         </tr>
                       </thead>
@@ -280,8 +323,17 @@ export default function UsersPage() {
                             <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 border-r border-gray-200">
                               {course.station}
                             </td>
-                            <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
+                            <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 border-r border-gray-200">
                               {course.division}
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 border-r border-gray-200">
+                              {formatDateTime(course.classTimeFrom)}
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 border-r border-gray-200">
+                              {formatDateTime(course.classTimeTo)}
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
+                              {formatDuration(course.duration)}
                             </td>
                           </tr>
                         ))}
