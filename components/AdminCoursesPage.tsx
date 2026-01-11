@@ -57,7 +57,13 @@ export default function AdminCoursesPage({ adminId }: AdminCoursesPageProps) {
     
     try {
       if (editingCourse) {
-        await updateCourse(editingCourse._id, formData);
+        await updateCourse(editingCourse._id, {
+          title: formData.title,
+          description: formData.description,
+          duration: formData.duration,
+          dueDate: formData.dueDate,
+          batchDetails: formData.batchDetails
+        });
         setEditingCourse(null);
       } else {
         await createCourse({
