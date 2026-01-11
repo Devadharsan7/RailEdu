@@ -197,3 +197,6 @@ Expected columns (case-insensitive, flexible matching):
 - `uuid`: Generate unique Excel IDs
 - `xlsx`: Parse Excel files
 
+
+
+

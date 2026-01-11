@@ -4,30 +4,30 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { Bell, User, LogOut } from 'lucide-react'
 import { getAuthUser } from '@/lib/auth'
-import { notificationStorage } from '@/lib/storage'
+import { useUserAlerts, useAdminAlerts } from '@/hooks/useScheduler'
 import NotificationsPanel from '@/components/NotificationsPanel'
 
 export default function Header() {
   const router = useRouter()
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false)
-  const [unreadCount, setUnreadCount] = useState(0)
   const user = typeof window !== 'undefined' ? getAuthUser() : null
-
-  useEffect(() => {
-    const updateUnreadCount = () => {
-      setUnreadCount(notificationStorage.getUnreadCount())
-    }
-    updateUnreadCount()
-    const interval = setInterval(updateUnreadCount, 2000)
-    return () => clearInterval(interval)
-  }, [])
+  
+  const { alerts: userAlerts } = useUserAlerts(user?.userType === 'crew' ? (user?.id || '') : '')
+  const { alerts: adminAlerts } = useAdminAlerts(user?.userType === 'administrator' ? (user?.id || '') : '')
+  
+  const unreadCount = user?.userType === 'administrator' 
+    ? (adminAlerts?.length || 0)
+    : (userAlerts?.length || 0)
 
   const handleLogout = () => {
-    // Clear authentication data
     if (typeof window !== 'undefined') {
       localStorage.removeItem('authUser')
     }
     router.push('/login')
+  }
+
+  const handleNotificationClick = () => {
+    setIsNotificationsOpen(true)
   }
 
   return (
@@ -36,13 +36,15 @@ export default function Header() {
         <div className="h-full px-6 flex items-center justify-end">
           <div className="flex items-center gap-4">
             <button
-              onClick={() => setIsNotificationsOpen(true)}
+              onClick={handleNotificationClick}
               className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-200 rounded-lg transition-colors relative"
               title="Notifications"
             >
               <Bell className="w-5 h-5" />
               {unreadCount > 0 && (
-                <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
+                <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">
+                  {unreadCount}
+                </span>
               )}
             </button>
           <div className="flex items-center gap-3 pl-4 border-l border-gray-300">
@@ -65,7 +67,12 @@ export default function Header() {
         </div>
       </div>
     </header>
-    <NotificationsPanel isOpen={isNotificationsOpen} onClose={() => setIsNotificationsOpen(false)} />
+    <NotificationsPanel 
+      isOpen={isNotificationsOpen} 
+      onClose={() => setIsNotificationsOpen(false)}
+      userId={user?.id || ''}
+      userType={user?.userType || 'crew'}
+    />
     </>
   )
 }

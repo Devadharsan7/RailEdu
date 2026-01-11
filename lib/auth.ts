@@ -1,3 +1,5 @@
+import { useState, useEffect } from 'react'
+
 // Authentication credentials
 export const CREDENTIALS = {
   admin: {
@@ -73,6 +75,20 @@ export const clearAuth = () => {
 
 export const isAuthenticated = (): boolean => {
   return getAuth() !== null
+}
+
+// React hook for authentication
+export const useAuth = () => {
+  const [user, setUser] = useState<AuthUser | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    const authUser = getAuth()
+    setUser(authUser)
+    setLoading(false)
+  }, [])
+
+  return { user, loading }
 }
 
 

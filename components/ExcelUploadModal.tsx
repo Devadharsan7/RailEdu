@@ -34,6 +34,10 @@ const stations = [
 
 type Step = 'upload' | 'sheet' | 'station' | 'config' | 'uploading'
 
+// Feature flag: Set to true to enable Step 4 (Configure Course)
+// Set to false to hide the configuration step
+const ENABLE_COURSE_CONFIG_STEP = false
+
 export default function ExcelUploadModal({ isOpen, onClose }: ExcelUploadModalProps) {
   const [currentStep, setCurrentStep] = useState<Step>('upload')
   const [isDragging, setIsDragging] = useState(false)
@@ -166,7 +170,13 @@ export default function ExcelUploadModal({ isOpen, onClose }: ExcelUploadModalPr
       alert('Please select a station')
       return
     }
-    setCurrentStep('config')
+    // Skip config step if disabled, go directly to upload
+    if (ENABLE_COURSE_CONFIG_STEP) {
+      setCurrentStep('config')
+    } else {
+      // Use default values and proceed directly to upload
+      handleUploadWithDefaults()
+    }
   }
 
   const handleMembersPerClassChange = (value: number) => {
@@ -196,7 +206,126 @@ export default function ExcelUploadModal({ isOpen, onClose }: ExcelUploadModalPr
     }
   }
 
+  const handleUploadWithDefaults = async () => {
+    // Prevent double submission
+    if (isUploading) {
+      console.warn('Upload already in progress, ignoring duplicate request')
+      return
+    }
+
+    if (!selectedFile || !selectedSheet || !selectedStation) {
+      alert('Please complete all steps')
+      return
+    }
+
+    // Set default values when config step is disabled
+    const defaultCourseName = courseName || `Course ${new Date().toISOString().split('T')[0]}`
+    const defaultCourseTiming = courseTiming || '9:00 AM - 5:00 PM'
+    const defaultMembersPerClass = membersPerClass || Math.ceil(totalMembers / (numberOfBatches || 1))
+    const defaultMonths = selectedMonths.length > 0 ? selectedMonths : ['January', 'February']
+    const defaultYear = selectedYear || new Date().getFullYear()
+
+    // Update state with defaults
+    setCourseName(defaultCourseName)
+    setCourseTiming(defaultCourseTiming)
+    setMembersPerClass(defaultMembersPerClass)
+    setSelectedMonths(defaultMonths)
+    setSelectedYear(defaultYear)
+
+    // Proceed with upload
+    setIsUploading(true)
+    setUploadProgress(10)
+    setCurrentStep('uploading')
+
+    try {
+      const formData = new FormData()
+      formData.append('file', selectedFile)
+      formData.append('sheetName', selectedSheet)
+      
+      const station = stations.find(s => s.id === selectedStation)
+      if (!station) {
+        throw new Error('Station not found')
+      }
+      
+      formData.append('stationId', station.id)
+      formData.append('stationName', station.name)
+      formData.append('stationCode', station.code)
+      formData.append('courseName', defaultCourseName)
+      formData.append('courseTiming', defaultCourseTiming)
+      formData.append('numberOfBatches', (numberOfBatches || 1).toString())
+      formData.append('membersPerClass', defaultMembersPerClass.toString())
+      formData.append('totalMembers', totalMembers.toString())
+      formData.append('batchMonths', JSON.stringify(defaultMonths))
+      formData.append('batchYear', defaultYear.toString())
+
+      setUploadProgress(30)
+      const response = await fetch('/api/upload-excel', {
+        method: 'POST',
+        body: formData,
+      })
+
+      setUploadProgress(60)
+      const result = await response.json()
+      setUploadProgress(80)
+
+      // Handle duplicate content response (status 200 but isDuplicate flag)
+      if (result.isDuplicate && !result.hasNewContent) {
+        notificationStorage.add({
+          title: 'Duplicate Content Detected',
+          message: result.message || `The uploaded Excel file contains the same content as existing data. All ${totalMembers} records already exist in the database.`,
+          type: 'warning',
+        })
+        setUploadProgress(100)
+        
+        // Reset and close after 3 seconds (longer for duplicate message)
+        setTimeout(() => {
+          handleReset()
+          onClose()
+          window.dispatchEvent(new Event('divisionsUpdated'))
+        }, 3000)
+        return
+      }
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Upload failed')
+      }
+
+      // Build success message based on upload result
+      let successMessage = result.message || `Successfully uploaded ${totalMembers} members to ${station.name}. Course: ${defaultCourseName}`
+      
+      if (result.hasDuplicates && result.hasNewContent) {
+        successMessage = `${result.data.newRecords} new records uploaded. ${result.data.duplicateRecords} duplicate record(s) were skipped.`
+      }
+
+      notificationStorage.add({
+        title: result.hasDuplicates ? 'Excel File Uploaded (Partial)' : 'Excel File Uploaded',
+        message: successMessage,
+        type: result.hasDuplicates ? 'info' : 'success',
+      })
+
+      setUploadProgress(100)
+      
+      // Reset and close after 2 seconds
+      setTimeout(() => {
+        handleReset()
+        onClose()
+        window.dispatchEvent(new Event('divisionsUpdated'))
+      }, 2000)
+    } catch (error: any) {
+      alert(`Upload Error: ${error.message}`)
+      setIsUploading(false)
+      setCurrentStep('station')
+      setUploadProgress(0)
+    }
+  }
+
   const handleUpload = async () => {
+    // Prevent double submission
+    if (isUploading) {
+      console.warn('Upload already in progress, ignoring duplicate request')
+      return
+    }
+
     if (!selectedFile || !selectedSheet || !selectedStation) {
       alert('Please complete all steps')
       return
@@ -260,14 +389,39 @@ export default function ExcelUploadModal({ isOpen, onClose }: ExcelUploadModalPr
       const result = await response.json()
       setUploadProgress(80)
 
+      // Handle duplicate content response (status 200 but isDuplicate flag)
+      if (result.isDuplicate && !result.hasNewContent) {
+        notificationStorage.add({
+          title: 'Duplicate Content Detected',
+          message: result.message || `The uploaded Excel file contains the same content as existing data. All ${totalMembers} records already exist in the database.`,
+          type: 'warning',
+        })
+        setUploadProgress(100)
+        
+        // Reset and close after 3 seconds (longer for duplicate message)
+        setTimeout(() => {
+          handleReset()
+          onClose()
+          window.dispatchEvent(new Event('divisionsUpdated'))
+        }, 3000)
+        return
+      }
+
       if (!response.ok) {
         throw new Error(result.error || 'Upload failed')
       }
 
+      // Build success message based on upload result
+      let successMessage = result.message || `Successfully uploaded ${totalMembers} members to ${station.name}. Course: ${courseName}`
+      
+      if (result.hasDuplicates && result.hasNewContent) {
+        successMessage = `${result.data.newRecords} new records uploaded. ${result.data.duplicateRecords} duplicate record(s) were skipped.`
+      }
+
       notificationStorage.add({
-        title: 'Excel File Uploaded',
-        message: `Successfully uploaded ${totalMembers} members to ${station.name}. Course: ${courseName}`,
-        type: 'success',
+        title: result.hasDuplicates ? 'Excel File Uploaded (Partial)' : 'Excel File Uploaded',
+        message: successMessage,
+        type: result.hasDuplicates ? 'info' : 'success',
       })
 
       setUploadProgress(100)
@@ -279,9 +433,11 @@ export default function ExcelUploadModal({ isOpen, onClose }: ExcelUploadModalPr
         window.dispatchEvent(new Event('divisionsUpdated'))
       }, 2000)
     } catch (error: any) {
-      alert(`Upload Error: ${error.message}`)
+      console.error('Upload error:', error)
+      alert(`Upload Error: ${error.message || 'Unknown error occurred'}`)
       setIsUploading(false)
-      setCurrentStep('config')
+      // Set step back based on config step availability
+      setCurrentStep(ENABLE_COURSE_CONFIG_STEP ? 'config' : 'station')
       setUploadProgress(0)
     }
   }
@@ -318,7 +474,7 @@ export default function ExcelUploadModal({ isOpen, onClose }: ExcelUploadModalPr
       } else {
         setCurrentStep('upload')
       }
-    } else if (currentStep === 'config') {
+    } else if (currentStep === 'config' && ENABLE_COURSE_CONFIG_STEP) {
       setCurrentStep('station')
     }
   }
@@ -339,7 +495,7 @@ export default function ExcelUploadModal({ isOpen, onClose }: ExcelUploadModalPr
               <p className="text-sm text-gray-600">
                 {currentStep === 'upload' && 'Step 1: Upload Excel file'}
                 {currentStep === 'sheet' && 'Step 2: Select sheet'}
-                {currentStep === 'station' && 'Step 3: Select station'}
+                {currentStep === 'station' && ENABLE_COURSE_CONFIG_STEP ? 'Step 3: Select station' : 'Step 3: Select station & Upload'}
                 {currentStep === 'config' && 'Step 4: Configure course'}
                 {currentStep === 'uploading' && 'Uploading...'}
               </p>
@@ -455,8 +611,8 @@ export default function ExcelUploadModal({ isOpen, onClose }: ExcelUploadModalPr
             </div>
           )}
 
-          {/* Step 4: Configure Course */}
-          {currentStep === 'config' && (
+          {/* Step 4: Configure Course - HIDDEN until permission is granted */}
+          {ENABLE_COURSE_CONFIG_STEP && currentStep === 'config' && (
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -633,7 +789,7 @@ export default function ExcelUploadModal({ isOpen, onClose }: ExcelUploadModalPr
         <div className="flex items-center justify-between p-6 border-t border-gray-200">
           <button
             onClick={handleBack}
-            disabled={currentStep === 'upload' || currentStep === 'uploading'}
+            disabled={currentStep === 'upload' || currentStep === 'uploading' || (!ENABLE_COURSE_CONFIG_STEP && currentStep === 'station')}
             className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium flex items-center gap-2"
           >
             <ArrowLeft className="w-4 h-4" />
@@ -665,7 +821,7 @@ export default function ExcelUploadModal({ isOpen, onClose }: ExcelUploadModalPr
               </button>
             )}
             
-            {currentStep === 'station' && (
+            {ENABLE_COURSE_CONFIG_STEP && currentStep === 'station' && (
               <button
                 onClick={handleNextFromStation}
                 disabled={!selectedStation}
@@ -676,10 +832,21 @@ export default function ExcelUploadModal({ isOpen, onClose }: ExcelUploadModalPr
               </button>
             )}
             
-            {currentStep === 'config' && (
+            {ENABLE_COURSE_CONFIG_STEP && currentStep === 'config' && (
               <button
                 onClick={handleUpload}
                 disabled={!courseName || !courseTiming || membersPerClass <= 0 || selectedMonths.length === 0 || !!validationError}
+                className="px-4 py-2 bg-primary-500 hover:bg-primary-600 disabled:bg-primary-300 disabled:cursor-not-allowed text-white rounded-lg transition-colors font-medium flex items-center gap-2"
+              >
+                <UploadIcon className="w-4 h-4" />
+                Upload
+              </button>
+            )}
+            
+            {!ENABLE_COURSE_CONFIG_STEP && currentStep === 'station' && (
+              <button
+                onClick={handleUploadWithDefaults}
+                disabled={!selectedStation}
                 className="px-4 py-2 bg-primary-500 hover:bg-primary-600 disabled:bg-primary-300 disabled:cursor-not-allowed text-white rounded-lg transition-colors font-medium flex items-center gap-2"
               >
                 <UploadIcon className="w-4 h-4" />

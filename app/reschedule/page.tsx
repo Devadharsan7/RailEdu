@@ -55,10 +55,13 @@ function RescheduleContent() {
     rescheduleStorage.save(request)
     
     // Add notification
-    notificationStorage.add({
+    notificationStorage.save({
+      id: Date.now().toString(),
       title: 'Reschedule Request Submitted',
       message: `Your request for ${selectedCourse} has been submitted and is pending review.`,
       type: 'info',
+      read: false,
+      createdAt: new Date().toISOString(),
     })
     
     setTimeout(() => {

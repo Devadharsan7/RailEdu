@@ -65,21 +65,53 @@ export default function BatchManagement() {
     months: [] as string[],
   })
 
-  const handleAddBatch = () => {
+  const handleAddBatch = async () => {
     if (newBatch.course.trim() && newBatch.months.length > 0) {
-      const batch: Batch = {
-        id: Date.now().toString(),
-        course: newBatch.course,
-        classesPerBatch: newBatch.classesPerBatch,
-        crewLimitPerClass: newBatch.crewLimitPerClass,
-        months: newBatch.months,
-        createdAt: new Date().toISOString(),
+      try {
+        // Save to localStorage first (for immediate UI update)
+        const batch: Batch = {
+          id: Date.now().toString(),
+          course: newBatch.course,
+          classesPerBatch: newBatch.classesPerBatch,
+          crewLimitPerClass: newBatch.crewLimitPerClass,
+          months: newBatch.months,
+          createdAt: new Date().toISOString(),
+        }
+        batchStorage.save(batch)
+        
+        // Also save to MongoDB via API so it appears in courses page
+        const response = await fetch('/api/batch-configs', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            courseName: newBatch.course,
+            classesPerBatch: newBatch.classesPerBatch,
+            crewLimitPerClass: newBatch.crewLimitPerClass,
+            months: newBatch.months,
+            batchYear: new Date().getFullYear(),
+            timing: 'Morning', // Default timing
+            stationId: 'default', // Will be updated when actual assignments are made
+            stationName: 'Default Station',
+            stationCode: 'DEF',
+          }),
+        })
+
+        const result = await response.json()
+        
+        if (response.ok && result.success) {
+          setBatches(batchStorage.getAll())
+          setNewBatch({ course: '', classesPerBatch: 6, crewLimitPerClass: 30, months: [] })
+          setIsAdding(false)
+          success(`Batch created successfully for ${batch.course}. It will appear in the Courses page.`)
+        } else {
+          throw new Error(result.error || 'Failed to save batch to database')
+        }
+      } catch (err: any) {
+        console.error('Error creating batch:', err)
+        error(`Failed to create batch: ${err.message || 'Unknown error'}`)
       }
-      batchStorage.save(batch)
-      setBatches(batchStorage.getAll())
-      setNewBatch({ course: '', classesPerBatch: 6, crewLimitPerClass: 30, months: [] })
-      setIsAdding(false)
-      success(`Batch created successfully for ${batch.course}`)
     } else {
       error('Please fill in all required fields: Course and at least one month.')
     }
@@ -98,23 +130,72 @@ export default function BatchManagement() {
     setEditingId(batch.id)
   }
 
-  const handleSave = (id: string, updatedBatch: Partial<Batch>) => {
+  const handleSave = async (id: string, updatedBatch: Partial<Batch>) => {
     const batch = batchStorage.getById(id)
     if (batch) {
-      const updated = { ...batch, ...updatedBatch }
-      batchStorage.save(updated)
-      setBatches(batchStorage.getAll())
-      setEditingId(null)
-      success('Batch updated successfully!')
+      try {
+        const updated = { ...batch, ...updatedBatch }
+        batchStorage.save(updated)
+        
+        // Update in MongoDB
+        const response = await fetch('/api/batch-configs', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            courseName: updated.course,
+            classesPerBatch: updated.classesPerBatch,
+            crewLimitPerClass: updated.crewLimitPerClass,
+            months: updated.months,
+            batchYear: new Date().getFullYear(),
+            timing: 'Morning',
+            stationId: 'default',
+            stationName: 'Default Station',
+            stationCode: 'DEF',
+          }),
+        })
+
+        if (response.ok) {
+          setBatches(batchStorage.getAll())
+          setEditingId(null)
+          success('Batch updated successfully! Changes will reflect in Courses page.')
+        } else {
+          throw new Error('Failed to update batch in database')
+        }
+      } catch (err: any) {
+        console.error('Error updating batch:', err)
+        error(`Failed to update batch: ${err.message || 'Unknown error'}`)
+      }
     }
   }
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     const batch = batchStorage.getById(id)
     if (batch && confirm(`Are you sure you want to delete batch for ${batch.course}?`)) {
-      batchStorage.delete(id)
-      setBatches(batchStorage.getAll())
-      success('Batch deleted successfully!')
+      try {
+        // Delete placeholder batch assignments from MongoDB
+        const response = await fetch('/api/batch-configs', {
+          method: 'DELETE',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            courseName: batch.course,
+            batchYear: new Date().getFullYear(),
+          }),
+        })
+
+        batchStorage.delete(id)
+        setBatches(batchStorage.getAll())
+        success('Batch deleted successfully!')
+      } catch (err: any) {
+        console.error('Error deleting batch:', err)
+        // Still delete from localStorage even if API call fails
+        batchStorage.delete(id)
+        setBatches(batchStorage.getAll())
+        error(`Batch removed locally, but database update failed: ${err.message || 'Unknown error'}`)
+      }
     }
   }
 

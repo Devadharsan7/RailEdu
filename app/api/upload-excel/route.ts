@@ -1,15 +1,184 @@
 import { NextRequest, NextResponse } from 'next/server'
 import * as XLSX from 'xlsx'
 import connectDB from '@/lib/mongodb'
-import { ExcelFile, CrewCourse } from '@/lib/models'
+import { ExcelFile, CrewCourse, BatchAssignment } from '@/lib/models'
 import { parseCrewId } from '@/lib/crewIdParser'
 import { v4 as uuidv4 } from 'uuid'
+import { assignBatchesAndClasses } from '@/lib/batchAssignment'
+import mongoose from 'mongoose'
 
 // Mark route as dynamic
 export const dynamic = 'force-dynamic'
 
 interface ExcelRow {
   [key: string]: any
+}
+
+/**
+ * Calculate and assign time windows for batch assignments
+ * This calculates assignedTimeFrom and assignedTimeTo based on:
+ * - The closest due date from the CrewCourse
+ * - A buffer period before the due date (to ensure completion before deadline)
+ * - A duration for the class session
+ * 
+ * @param excelId - The Excel file ID to process batch assignments for
+ * @param durationMinutes - Duration of each class in minutes (default: 60)
+ * @param bufferDaysBeforeDue - Days before due date to schedule the class (default: 7)
+ */
+async function calculateAndAssignTimeWindows(
+  excelId: string,
+  durationMinutes: number = 60,
+  bufferDaysBeforeDue: number = 7
+): Promise<void> {
+  try {
+    // Fetch all batch assignments for this excelId that don't have assigned times yet
+    const batchAssignments = await BatchAssignment.find({
+      excelId,
+      $or: [
+        { assignedTimeFrom: { $exists: false } },
+        { assignedTimeFrom: null },
+      ],
+    }).lean()
+
+    if (batchAssignments.length === 0) {
+      console.log('No batch assignments found to calculate time windows for')
+      return
+    }
+
+    // Get all unique crewCourseIds and convert to ObjectId for querying
+    const crewCourseIds = Array.from(new Set(batchAssignments.map(a => a.crewCourseId).filter(id => id && id.trim() !== '')))
+    
+    if (crewCourseIds.length === 0) {
+      console.warn('No valid crewCourseIds found in batch assignments')
+      return
+    }
+
+    const crewCourseObjectIds = crewCourseIds
+      .map(id => {
+        try {
+          // Handle both string ObjectIds and already converted ObjectIds
+          if (mongoose.Types.ObjectId.isValid(id)) {
+            return new mongoose.Types.ObjectId(id)
+          }
+          console.warn(`Invalid ObjectId format: ${id}`)
+          return null
+        } catch (error) {
+          console.warn(`Error converting ObjectId: ${id}`, error)
+          return null
+        }
+      })
+      .filter((id): id is mongoose.Types.ObjectId => id !== null)
+
+    if (crewCourseObjectIds.length === 0) {
+      console.warn('No valid ObjectIds could be created from crewCourseIds')
+      return
+    }
+
+    // Fetch corresponding CrewCourses to get due dates
+    const crewCourses = await CrewCourse.find({
+      _id: { $in: crewCourseObjectIds },
+    }).lean()
+
+    if (crewCourses.length === 0) {
+      console.warn('No CrewCourses found for the given IDs')
+      return
+    }
+
+    // Create a map for quick lookup: crewCourseId -> dueDate
+    const dueDateMap = new Map<string, Date>()
+    const crewCourseMap = new Map<string, typeof crewCourses[0]>()
+    crewCourses.forEach(cc => {
+      if (!cc || !cc._id || !cc.test || !cc.test.dueDate) {
+        console.warn('Invalid CrewCourse structure:', cc)
+        return
+      }
+      const id = cc._id.toString()
+      try {
+        const dueDate = new Date(cc.test.dueDate)
+        if (isNaN(dueDate.getTime())) {
+          console.warn(`Invalid due date for CrewCourse ${id}:`, cc.test.dueDate)
+          return
+        }
+        dueDateMap.set(id, dueDate)
+        crewCourseMap.set(id, cc)
+      } catch (error) {
+        console.warn(`Error processing CrewCourse ${id}:`, error)
+      }
+    })
+
+    // Calculate assigned time windows for each batch assignment
+    // Each assignment uses its own CrewCourse's due date as the "closest due date" reference
+    const updates: Array<{
+      updateOne: {
+        filter: { _id: any }
+        update: { $set: { assignedTimeFrom: Date; assignedTimeTo: Date } }
+      }
+    }> = []
+
+    for (const assignment of batchAssignments) {
+      const crewCourse = crewCourseMap.get(assignment.crewCourseId)
+      if (!crewCourse) {
+        console.warn(`CrewCourse not found for assignment: ${assignment.crewCourseId}`)
+        continue
+      }
+
+      // Get the due date for this specific CrewCourse (the "closest due date" for this assignment)
+      const closestDueDate = dueDateMap.get(assignment.crewCourseId)
+      if (!closestDueDate) {
+        console.warn(`No due date found for CrewCourse: ${assignment.crewCourseId}`)
+        continue
+      }
+
+      // Calculate assignedTimeFrom: dueDate - bufferDaysBeforeDue
+      // This ensures the class is completed before the due date
+      const assignedTimeFrom = new Date(closestDueDate)
+      assignedTimeFrom.setDate(assignedTimeFrom.getDate() - bufferDaysBeforeDue)
+      assignedTimeFrom.setHours(9, 0, 0, 0) // Default to 9:00 AM start time
+
+      // Calculate assignedTimeTo: assignedTimeFrom + durationMinutes
+      const assignedTimeTo = new Date(assignedTimeFrom)
+      assignedTimeTo.setMinutes(assignedTimeTo.getMinutes() + durationMinutes)
+
+      updates.push({
+        updateOne: {
+          filter: { _id: assignment._id },
+          update: {
+            $set: {
+              assignedTimeFrom,
+              assignedTimeTo,
+            },
+          },
+        },
+      })
+    }
+
+    // Bulk update all batch assignments
+    if (updates.length > 0) {
+      try {
+        await BatchAssignment.bulkWrite(updates, { ordered: false }) // ordered: false to continue on errors
+        console.log(`Updated ${updates.length} batch assignments with assigned time windows`)
+      } catch (bulkError: any) {
+        console.error('Error in bulkWrite for assigned time windows:', bulkError)
+        // Try updating individually to see which ones fail
+        let successCount = 0
+        for (const update of updates) {
+          try {
+            await BatchAssignment.updateOne(update.updateOne.filter, update.updateOne.update)
+            successCount++
+          } catch (individualError: any) {
+            console.error(`Failed to update batch assignment ${update.updateOne.filter._id}:`, individualError)
+          }
+        }
+        console.log(`Updated ${successCount} out of ${updates.length} batch assignments with assigned time windows`)
+      }
+    } else {
+      console.log('No batch assignments to update with time windows')
+    }
+  } catch (error: any) {
+    console.error('Error in calculateAndAssignTimeWindows:', error)
+    // Don't throw - let the upload continue even if time calculation fails
+    // This prevents the entire upload from failing due to time calculation issues
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -53,28 +222,17 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    if (!courseName || !courseTiming) {
-      return NextResponse.json(
-        { error: 'Course name and timing are required' },
-        { status: 400 }
-      )
-    }
+    // Use defaults if courseName or courseTiming are not provided (when config step is disabled)
+    const finalCourseName = courseName || `Course ${new Date().toISOString().split('T')[0]}`
+    const finalCourseTiming = courseTiming || '9:00 AM - 5:00 PM'
 
     const excelName = file.name
+    const uploadTimestamp = new Date().toISOString()
 
-    // CRITICAL: Check if Excel file already exists by excelName
-    let existingExcelFile = await ExcelFile.findOne({ excelName })
-    let excelId: string
-
-    if (existingExcelFile) {
-      // Reuse existing excelId
-      excelId = existingExcelFile.excelId
-      console.log(`Reusing existing excelId: ${excelId} for file: ${excelName}`)
-    } else {
-      // Generate new excelId
-      excelId = uuidv4()
-      console.log(`Creating new excelId: ${excelId} for file: ${excelName}`)
-    }
+    // Always generate a new excelId for each upload to track separate uploads
+    // This allows tracking which Excel file each record came from
+    const excelId = uuidv4()
+    console.log(`Creating new excelId: ${excelId} for file: ${excelName} (uploaded at ${uploadTimestamp})`)
 
     // Read the file as buffer
     const bytes = await file.arrayBuffer()
@@ -352,38 +510,162 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Save or update excel_files document
+    // Check for duplicate content by comparing with existing crew courses
+    // Create content signatures for comparison (crewId + division + testCode + dueDate)
+    const createContentSignature = (course: typeof crewCoursesToInsert[0]) => {
+      const dueDateStr = course.test.dueDate instanceof Date 
+        ? course.test.dueDate.toISOString().split('T')[0] 
+        : new Date(course.test.dueDate).toISOString().split('T')[0]
+      return `${course.division.code}-${course.crew.crewId}-${course.test.testCode}-${dueDateStr}`.toUpperCase()
+    }
+
+    const newContentSignatures = new Set(
+      crewCoursesToInsert.map(createContentSignature)
+    )
+
+    // Get all existing crew courses to compare
+    const existingCrewCourses = await CrewCourse.find({}).lean()
+    const existingSignatures = new Set(
+      existingCrewCourses.map((course: any) => {
+        const dueDateStr = course.test.dueDate instanceof Date
+          ? course.test.dueDate.toISOString().split('T')[0]
+          : new Date(course.test.dueDate).toISOString().split('T')[0]
+        return `${course.division.code}-${course.crew.crewId}-${course.test.testCode}-${dueDateStr}`.toUpperCase()
+      })
+    )
+
+    // Check if all new content already exists (exact duplicate)
+    const allDuplicates = Array.from(newContentSignatures).every(sig => existingSignatures.has(sig))
+    
+    // Find new content (signatures that don't exist)
+    const newSignatures = Array.from(newContentSignatures).filter(sig => !existingSignatures.has(sig))
+    const duplicateSignatures = Array.from(newContentSignatures).filter(sig => existingSignatures.has(sig))
+
+    // Filter crew courses: keep only new ones (remove duplicates)
+    const newCrewCourses = crewCoursesToInsert.filter(course => {
+      const sig = createContentSignature(course)
+      return !existingSignatures.has(sig)
+    })
+
+    // If all content is duplicate, inform admin
+    if (allDuplicates && existingCrewCourses.length > 0) {
+      return NextResponse.json({
+        success: false,
+        isDuplicate: true,
+        message: `The uploaded Excel file contains the same content as existing data. All ${crewCoursesToInsert.length} records already exist in the database.`,
+        data: {
+          totalRecords: crewCoursesToInsert.length,
+          duplicateRecords: duplicateSignatures.length,
+          newRecords: 0,
+        },
+      }, { status: 200 }) // Status 200 so it's not treated as error, but shows the duplicate message
+    }
+
+    // Save excel_files document (always create new entry for each upload)
     const excelFileData = {
       excelId,
       excelName,
       uploadedAt: new Date(),
       uploadedBy,
-      totalRecords: crewCoursesToInsert.length,
+      totalRecords: newCrewCourses.length > 0 ? newCrewCourses.length : crewCoursesToInsert.length,
       status: 'ACTIVE' as const,
     }
 
-    await ExcelFile.findOneAndUpdate(
-      { excelId },
-      excelFileData,
-      { upsert: true, new: true }
-    )
+    await ExcelFile.create(excelFileData)
+    console.log(`Created Excel file record: ${excelName} with excelId: ${excelId}`)
 
-    // Delete existing crew_courses for this excelId (if re-uploading)
-    if (existingExcelFile) {
-      await CrewCourse.deleteMany({ excelId })
-      console.log(`Deleted existing crew_courses for excelId: ${excelId}`)
+    // Insert only new crew_courses (skip duplicates) - APPEND mode, never delete existing
+    let insertedCount = 0
+    if (newCrewCourses.length > 0) {
+      await CrewCourse.insertMany(newCrewCourses)
+      insertedCount = newCrewCourses.length
+      console.log(`Successfully appended ${insertedCount} new crew courses to database (existing records preserved)`)
+    } else {
+      console.log('No new records to insert (all were duplicates) - existing records preserved')
     }
 
-    // Insert all crew_courses documents
-    await CrewCourse.insertMany(crewCoursesToInsert)
+    // Prepare response with duplicate detection info
+    const hasNewContent = newCrewCourses.length > 0
+    const hasDuplicates = duplicateSignatures.length > 0
 
-    console.log(`Successfully saved ${crewCoursesToInsert.length} crew courses to database`)
+    // Automatically assign batches and classes after upload (only if new content was added)
+    let batchAssignmentResult = null
+    if (hasNewContent) {
+      try {
+        // For batch assignment, use all crew courses with this excelId (including newly inserted ones)
+        // We'll use the excelId that was created/used
+        batchAssignmentResult = await assignBatchesAndClasses({
+          excelId,
+          station: {
+            id: stationId,
+            name: stationName,
+            code: stationCode,
+          },
+          course: {
+            name: finalCourseName,
+            timing: finalCourseTiming,
+            numberOfBatches,
+            membersPerClass,
+            batchMonths: batchMonths ? JSON.parse(batchMonths) : [],
+            batchYear,
+          },
+        })
+        console.log('Batch assignment completed:', batchAssignmentResult)
+
+        // Calculate and assign time windows for batch assignments (based on closest due date)
+        // These variables control how assignedTimeFrom and assignedTimeTo are calculated
+        // Can be easily modified for rescheduling functionality in the future
+        const classDurationMinutes: number = 60 // Duration of each class session in minutes
+        const bufferDaysBeforeDueDate: number = 7 // Number of days before due date to schedule the class (ensures completion before deadline)
+        
+        if (batchAssignmentResult.success && batchAssignmentResult.totalAssigned > 0) {
+          try {
+            await calculateAndAssignTimeWindows(excelId, classDurationMinutes, bufferDaysBeforeDueDate)
+            console.log(`Assigned time windows calculated for batch assignments (duration: ${classDurationMinutes} minutes, buffer: ${bufferDaysBeforeDueDate} days before due date)`)
+          } catch (timeCalcError: any) {
+            console.error('Error calculating assigned time windows:', timeCalcError)
+            // Don't fail the upload if time calculation fails
+          }
+        }
+
+        // Automatically trigger class scheduling algorithm after batch assignment
+        if (batchAssignmentResult.success && batchAssignmentResult.totalAssigned > 0) {
+          try {
+            const { scheduleClassesForUsers } = await import('@/lib/classScheduling')
+            const schedulingResult = await scheduleClassesForUsers()
+            
+            console.log('Class scheduling completed:', {
+              scheduled: schedulingResult.scheduled,
+              failed: schedulingResult.failed,
+              errors: schedulingResult.errors,
+            })
+          } catch (schedulingError: any) {
+            console.error('Error scheduling classes:', schedulingError)
+            // Don't fail the upload if scheduling fails - it can be done manually later
+          }
+        }
+      } catch (batchError: any) {
+        console.error('Error assigning batches:', batchError)
+        // Don't fail the upload if batch assignment fails
+      }
+    }
+
+    // Build response message based on content status
+    let responseMessage = ''
+    if (hasNewContent && hasDuplicates) {
+      responseMessage = `Successfully uploaded ${insertedCount} new records. ${duplicateSignatures.length} duplicate record(s) were skipped.`
+    } else if (hasNewContent) {
+      responseMessage = `Successfully uploaded ${insertedCount} new records from file: ${excelName}`
+    } else {
+      responseMessage = `Upload completed. No new records to add (all ${crewCoursesToInsert.length} records already exist).`
+    }
 
     return NextResponse.json({
       success: true,
-      message: existingExcelFile
-        ? `Successfully re-uploaded and updated ${crewCoursesToInsert.length} records for existing file: ${excelName}`
-        : `Successfully uploaded ${crewCoursesToInsert.length} records from new file: ${excelName}`,
+      message: responseMessage,
+      isDuplicate: !hasNewContent && hasDuplicates,
+      hasNewContent,
+      hasDuplicates,
       data: {
         excelId,
         excelName,
@@ -394,24 +676,30 @@ export async function POST(request: NextRequest) {
           code: stationCode,
         },
         course: {
-          name: courseName,
-          timing: courseTiming,
+          name: finalCourseName,
+          timing: finalCourseTiming,
           numberOfBatches,
           membersPerClass,
           batchMonths: batchMonths ? JSON.parse(batchMonths) : [],
           batchYear,
         },
         totalRecords: crewCoursesToInsert.length,
+        newRecords: insertedCount,
+        duplicateRecords: duplicateSignatures.length,
         totalMembers,
-        isReupload: !!existingExcelFile,
+        excelUploadTime: uploadTimestamp,
         errors: errors.length > 0 ? errors : undefined,
         warnings: warnings.length > 0 ? warnings : undefined,
         summary: {
           totalRows: data.length,
           successfulRows: crewCoursesToInsert.length,
+          newRows: insertedCount,
+          duplicateRows: duplicateSignatures.length,
           errorRows: errors.length,
           warningRows: warnings.length,
         },
+        batchAssignment: batchAssignmentResult || null,
+        note: 'Existing users in database were preserved. Only new unique records were added.',
       },
     })
   } catch (error: any) {
