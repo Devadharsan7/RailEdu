@@ -70,23 +70,17 @@ export async function GET(request: NextRequest) {
         const fromDate = new Date(batchAssignment.assignedTimeFrom)
         const toDate = new Date(batchAssignment.assignedTimeTo)
         
-        // Format dates consistently with dueDate format (DD-MM-YYYY HH:MM)
-        classTimeFrom = fromDate.toLocaleString('en-GB', {
+        // Format dates consistently with dueDate format (DD-MM-YYYY) - no time
+        classTimeFrom = fromDate.toLocaleDateString('en-GB', {
           day: '2-digit',
           month: '2-digit',
-          year: 'numeric',
-          hour: '2-digit',
-          minute: '2-digit',
-          hour12: false
+          year: 'numeric'
         }).replace(/\//g, '-')
         
-        classTimeTo = toDate.toLocaleString('en-GB', {
+        classTimeTo = toDate.toLocaleDateString('en-GB', {
           day: '2-digit',
           month: '2-digit',
-          year: 'numeric',
-          hour: '2-digit',
-          minute: '2-digit',
-          hour12: false
+          year: 'numeric'
         }).replace(/\//g, '-')
 
         // Calculate duration in minutes

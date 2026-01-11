@@ -27,14 +27,16 @@ export default function MetricCard({
         <div className={`p-3 rounded-lg ${iconColor}`}>
           <Icon className="w-6 h-6 text-white" />
         </div>
-        <div className={`flex items-center gap-1 ${trendColor}`}>
-          {isPositive ? (
-            <ArrowUp className="w-4 h-4" />
-          ) : (
-            <ArrowDown className="w-4 h-4" />
-          )}
-          <span className="text-sm font-semibold">{Math.abs(trend)}%</span>
-        </div>
+        {trendLabel && (
+          <div className={`flex items-center gap-1 ${trendColor}`}>
+            {isPositive ? (
+              <ArrowUp className="w-4 h-4" />
+            ) : (
+              <ArrowDown className="w-4 h-4" />
+            )}
+            <span className="text-sm font-semibold">{trendLabel}</span>
+          </div>
+        )}
       </div>
       <h3 className="text-2xl font-bold text-gray-900 mb-1">{value}</h3>
       <p className="text-sm text-gray-600">{title}</p>

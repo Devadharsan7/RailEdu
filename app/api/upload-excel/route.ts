@@ -70,19 +70,13 @@ function parseDateString(dateString: string): Date | null {
 /**
  * Calculate and assign time windows for batch assignments
  * This calculates assignedTimeFrom and assignedTimeTo based on:
- * - The closest (earliest) due date in each batch/class combination
- * - A buffer period before the due date (to ensure completion before deadline)
- * - A duration for the class session
+ * - Each assignment's own crew course due date
+ * - CLASS TIME TO = the due date from Excel
+ * - CLASS TIME FROM = due date - 30 days
  * 
  * @param excelId - The Excel file ID to process batch assignments for
- * @param durationMinutes - Duration of each class in minutes (default: 60)
- * @param bufferDaysBeforeDue - Days before due date to schedule the class (default: 7)
  */
-async function calculateAndAssignTimeWindows(
-  excelId: string,
-  durationMinutes: number = 60,
-  bufferDaysBeforeDue: number = 7
-): Promise<void> {
+async function calculateAndAssignTimeWindows(excelId: string): Promise<void> {
   try {
     // Fetch all batch assignments for this excelId that don't have assigned times yet
     const batchAssignments = await BatchAssignment.find({
@@ -157,35 +151,8 @@ async function calculateAndAssignTimeWindows(
       }
     })
 
-    // Group batch assignments by course name, batch number, and class number
-    // Find the earliest (closest) due date in each group
-    const batchClassGroups = new Map<string, {
-      assignments: any[]
-      earliestDueDate: Date | null
-    }>()
-
-    for (const assignment of batchAssignments) {
-      const groupKey = `${assignment.course.name}-${assignment.batchNumber}-${assignment.classNumber}`
-      if (!batchClassGroups.has(groupKey)) {
-        batchClassGroups.set(groupKey, {
-          assignments: [],
-          earliestDueDate: null,
-        })
-      }
-      const group = batchClassGroups.get(groupKey)!
-      group.assignments.push(assignment)
-      
-      // Find earliest due date for this group
-      const dueDate = dueDateMap.get(assignment.crewCourseId)
-      if (dueDate) {
-        if (!group.earliestDueDate || dueDate < group.earliestDueDate) {
-          group.earliestDueDate = dueDate
-        }
-      }
-    }
-
-    // Calculate assigned time windows for each batch assignment group
-    // All assignments in the same batch/class use the same time window based on the earliest due date
+    // Calculate assigned time windows for each batch assignment
+    // Each assignment uses its own crew course's due date
     const updates: Array<{
       updateOne: {
         filter: { _id: any }
@@ -193,36 +160,34 @@ async function calculateAndAssignTimeWindows(
       }
     }> = []
 
-    for (const [groupKey, group] of Array.from(batchClassGroups.entries())) {
-      if (!group.earliestDueDate) {
-        console.warn(`No due date found for batch/class group: ${groupKey}`)
+    for (const assignment of batchAssignments) {
+      // Get the due date for this specific crew course
+      const dueDate = dueDateMap.get(assignment.crewCourseId)
+      if (!dueDate) {
+        console.warn(`No due date found for crew course: ${assignment.crewCourseId}`)
         continue
       }
 
-      // Calculate assignedTimeFrom: earliestDueDate - bufferDaysBeforeDue
-      // This ensures the class is completed before the earliest due date
-      const assignedTimeFrom = new Date(group.earliestDueDate)
-      assignedTimeFrom.setDate(assignedTimeFrom.getDate() - bufferDaysBeforeDue)
-      assignedTimeFrom.setHours(9, 0, 0, 0) // Default to 9:00 AM start time
+      // CLASS TIME TO = the due date from Excel (set to start of day)
+      const assignedTimeTo = new Date(dueDate)
+      assignedTimeTo.setHours(0, 0, 0, 0)
 
-      // Calculate assignedTimeTo: assignedTimeFrom + durationMinutes
-      const assignedTimeTo = new Date(assignedTimeFrom)
-      assignedTimeTo.setMinutes(assignedTimeTo.getMinutes() + durationMinutes)
+      // CLASS TIME FROM = due date - 30 days
+      const assignedTimeFrom = new Date(dueDate)
+      assignedTimeFrom.setDate(assignedTimeFrom.getDate() - 30)
+      assignedTimeFrom.setHours(0, 0, 0, 0)
 
-      // Apply the same time window to all assignments in this batch/class group
-      for (const assignment of group.assignments) {
-        updates.push({
-          updateOne: {
-            filter: { _id: assignment._id },
-            update: {
-              $set: {
-                assignedTimeFrom,
-                assignedTimeTo,
-              },
+      updates.push({
+        updateOne: {
+          filter: { _id: assignment._id },
+          update: {
+            $set: {
+              assignedTimeFrom,
+              assignedTimeTo,
             },
           },
-        })
-      }
+        },
+      })
     }
 
     // Bulk update all batch assignments
@@ -728,17 +693,12 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        // Calculate and assign time windows for all batch assignments (based on closest due date)
-        // These variables control how assignedTimeFrom and assignedTimeTo are calculated
+        // Calculate and assign time windows for all batch assignments
+        // Classes are assigned for a 30-day period starting from the first day of the first batch month
         // Can be easily modified for rescheduling functionality in the future
-        const classDurationMinutes: number = 60 // Duration of each class session in minutes
-        const bufferDaysBeforeDueDate: number = 7 // Number of days before due date to schedule the class (ensures completion before deadline)
-        
-        // Calculate time windows for all batch assignments created in this upload
-        // All batch assignments use the same excelId, so we calculate for all at once
         try {
-          await calculateAndAssignTimeWindows(excelId, classDurationMinutes, bufferDaysBeforeDueDate)
-          console.log(`Assigned time windows calculated for all batch assignments (duration: ${classDurationMinutes} minutes, buffer: ${bufferDaysBeforeDueDate} days before due date)`)
+          await calculateAndAssignTimeWindows(excelId)
+          console.log(`Assigned time windows calculated for all batch assignments (30-day period from start of batch month)`)
         } catch (timeCalcError: any) {
           console.error('Error calculating assigned time windows:', timeCalcError)
           // Don't fail the upload if time calculation fails
