@@ -62,7 +62,10 @@ export default function AdminCoursesPage({ adminId }: AdminCoursesPageProps) {
           description: formData.description,
           duration: formData.duration,
           dueDate: formData.dueDate,
-          batchDetails: formData.batchDetails
+          batchDetails: {
+            ...formData.batchDetails,
+            currentParticipants: editingCourse.batchDetails?.currentParticipants || 0
+          }
         });
         setEditingCourse(null);
       } else {
